@@ -66,8 +66,8 @@ const fileTree = [
             level: 2,
             children: [
               { name: 'class-meta-tags.php', type: 'file', description: 'Title, desc, robots, verification', icon: '🏷️' },
-              { name: 'class-opengraph.php', type: 'file', description: 'Open Graph etiketleri', icon: '📱' },
-              { name: 'class-twitter-cards.php', type: 'file', description: 'Twitter Card etiketleri', icon: '🐦' },
+              { name: 'class-opengraph.php', type: 'file', description: 'OG tags, article, product (WooCommerce)', icon: '📱' },
+              { name: 'class-twitter-cards.php', type: 'file', description: 'Twitter card, site, creator, image', icon: '🐦' },
               { name: 'class-canonical.php', type: 'file', description: 'rel=canonical, prev/next', icon: '🔗' },
               { name: 'class-breadcrumbs.php', type: 'file', description: 'Breadcrumb navigasyon', icon: '🧭' },
               { name: 'class-robots.php', type: 'file', description: 'wp_robots, robots.txt', icon: '🤖' },

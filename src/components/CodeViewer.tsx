@@ -2,17 +2,17 @@ import { useState } from 'react'
 
 const files = [
   {
-    id: 'meta-tags',
-    name: 'class-meta-tags.php',
-    path: 'includes/Frontend/class-meta-tags.php',
-    description: 'Meta etiketleri - Title, description, robots, verification kodları',
+    id: 'opengraph',
+    name: 'class-opengraph.php',
+    path: 'includes/Frontend/class-opengraph.php',
+    description: 'Open Graph meta etiketleri - Facebook, LinkedIn, article, product',
     language: 'php',
     code: `<?php
 /**
- * Meta Tags Sınıfı
+ * Open Graph Sınıfı
  *
- * wp_head hook'unda meta etiketlerini oluşturur.
- * Priority 1 ile çalışır.
+ * Facebook, LinkedIn ve diğer platformlar için OG meta etiketleri.
+ * wp_head priority 5
  *
  * @package WPSM\\Frontend
  * @since 1.0.0
@@ -22,7 +22,7 @@ namespace WPSM\\Frontend;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-class Class_Meta_Tags {
+class Class_Opengraph {
 
     private $options;
     private $other_seo_active = false;
@@ -32,14 +32,10 @@ class Class_Meta_Tags {
         $this->check_other_seo_plugins();
     }
 
-    /**
-     * Diğer SEO eklentilerini kontrol et
-     * Yoast, AIOSEO, Rank Math aktifse devre dışı kal
-     */
     private function check_other_seo_plugins() {
         $other_plugins = array(
-            'WPSEO_VERSION',      // Yoast SEO
-            'AIOSEO_VERSION',     // All in One SEO
+            'WPSEO_VERSION',      // Yoast
+            'AIOSEO_VERSION',     // AIOSEO
             'RANK_MATH_VERSION',  // Rank Math
             'SEOPRESS_VERSION',   // SEOPress
         );
@@ -47,354 +43,346 @@ class Class_Meta_Tags {
         foreach ( $other_plugins as $constant ) {
             if ( defined( $constant ) ) {
                 $this->other_seo_active = true;
-                if ( is_admin() && current_user_can( 'manage_options' ) ) {
-                    add_action( 'admin_notices', array( $this, 'other_seo_notice' ) );
-                }
                 break;
             }
         }
     }
 
     /**
-     * Meta etiketlerini çıktıla (wp_head priority 1)
+     * Open Graph etiketlerini çıktıla (wp_head priority 5)
      */
-    public function output_meta_tags() {
+    public function output_opengraph() {
         if ( $this->other_seo_active ) return;
 
-        $this->output_description();
-        $this->output_robots();
-        $this->output_verification_codes();
+        $enabled = $this->options->get( 'enable_opengraph', true );
+        if ( ! $enabled ) return;
+
+        // Temel OG etiketleri
+        $this->output_basic_tags();
+
+        // Görsel
+        $this->output_image_tags();
+
+        // Article etiketleri (singular)
+        if ( is_singular() ) {
+            $this->output_article_tags();
+        }
+
+        // Product etiketleri (WooCommerce)
+        if ( $this->is_woocommerce_product() ) {
+            $this->output_product_tags();
+        }
     }
 
     /**
-     * Title tag'i override et (pre_get_document_title filter)
-     *
-     * Öncelik: post meta _wpsm_title > şablon > site başlığı
-     * Şablon değişkenleri: %%title%%, %%sitename%%, %%sep%%, %%page%%
+     * Temel OG etiketleri
+     * og:locale, og:type, og:title, og:description, og:url, og:site_name
      */
-    public function filter_document_title( $title, $sep, $seplocation ) {
-        if ( $this->other_seo_active ) return $title;
+    private function output_basic_tags() {
+        $og_data = $this->get_og_data();
 
-        $sep = $this->options->get( 'title_separator', '|' );
+        // og:locale
+        echo '<meta property="og:locale" content="' . esc_attr( get_locale() ) . '" />' . "\\n";
 
-        // Singular sayfa
+        // og:type
+        $type = $this->get_og_type();
+        echo '<meta property="og:type" content="' . esc_attr( $type ) . '" />' . "\\n";
+
+        // og:title
+        if ( ! empty( $og_data['title'] ) ) {
+            echo '<meta property="og:title" content="' . esc_attr( $og_data['title'] ) . '" />' . "\\n";
+        }
+
+        // og:description
+        if ( ! empty( $og_data['description'] ) ) {
+            echo '<meta property="og:description" content="' . esc_attr( $og_data['description'] ) . '" />' . "\\n";
+        }
+
+        // og:url
+        if ( ! empty( $og_data['url'] ) ) {
+            echo '<meta property="og:url" content="' . esc_url( $og_data['url'] ) . '" />' . "\\n";
+        }
+
+        // og:site_name
+        $site_name = get_bloginfo( 'name' );
+        if ( ! empty( $site_name ) ) {
+            echo '<meta property="og:site_name" content="' . esc_attr( $site_name ) . '" />' . "\\n";
+        }
+
+        // Facebook App ID
+        $fb_app_id = $this->options->get( 'facebook_app_id', '' );
+        if ( ! empty( $fb_app_id ) ) {
+            echo '<meta property="fb:app_id" content="' . esc_attr( $fb_app_id ) . '" />' . "\\n";
+        }
+    }
+
+    /**
+     * OG görsel etiketleri
+     * og:image, og:image:width, og:image:height, og:image:alt
+     */
+    private function output_image_tags() {
+        $image_data = $this->get_og_image();
+
+        if ( empty( $image_data['url'] ) ) return;
+
+        echo '<meta property="og:image" content="' . esc_url( $image_data['url'] ) . '" />' . "\\n";
+
+        if ( ! empty( $image_data['width'] ) ) {
+            echo '<meta property="og:image:width" content="' . esc_attr( $image_data['width'] ) . '" />' . "\\n";
+        }
+
+        if ( ! empty( $image_data['height'] ) ) {
+            echo '<meta property="og:image:height" content="' . esc_attr( $image_data['height'] ) . '" />' . "\\n";
+        }
+
+        if ( ! empty( $image_data['alt'] ) ) {
+            echo '<meta property="og:image:alt" content="' . esc_attr( $image_data['alt'] ) . '" />' . "\\n";
+        }
+    }
+
+    /**
+     * Article etiketleri
+     * article:published_time, article:modified_time, article:author,
+     * article:section, article:tag
+     */
+    private function output_article_tags() {
+        $post_id = get_queried_object_id();
+        $post = get_post( $post_id );
+
+        if ( ! $post ) return;
+
+        // article:published_time
+        if ( ! empty( $post->post_date_gmt ) ) {
+            $published = mysql2date( 'c', $post->post_date_gmt );
+            echo '<meta property="article:published_time" content="' . esc_attr( $published ) . '" />' . "\\n";
+        }
+
+        // article:modified_time
+        if ( ! empty( $post->post_modified_gmt ) ) {
+            $modified = mysql2date( 'c', $post->post_modified_gmt );
+            echo '<meta property="article:modified_time" content="' . esc_attr( $modified ) . '" />' . "\\n";
+        }
+
+        // article:author
+        $author = get_the_author_meta( 'display_name', $post->post_author );
+        if ( ! empty( $author ) ) {
+            echo '<meta property="article:author" content="' . esc_attr( $author ) . '" />' . "\\n";
+        }
+
+        // article:section (kategori)
+        $categories = get_the_category( $post_id );
+        if ( ! empty( $categories ) ) {
+            echo '<meta property="article:section" content="' . esc_attr( $categories[0]->name ) . '" />' . "\\n";
+        }
+
+        // article:tag (etiketler)
+        $tags = get_the_tags( $post_id );
+        if ( ! empty( $tags ) ) {
+            foreach ( $tags as $tag ) {
+                echo '<meta property="article:tag" content="' . esc_attr( $tag->name ) . '" />' . "\\n";
+            }
+        }
+    }
+
+    /**
+     * Product etiketleri (WooCommerce)
+     * product:price:amount, product:price:currency,
+     * product:availability, product:retailer_item_id
+     */
+    private function output_product_tags() {
+        if ( ! function_exists( 'wc_get_product' ) ) return;
+
+        $post_id = get_queried_object_id();
+        $product = wc_get_product( $post_id );
+
+        if ( ! $product ) return;
+
+        // product:price:amount
+        $price = $product->get_price();
+        if ( ! empty( $price ) ) {
+            echo '<meta property="product:price:amount" content="' . esc_attr( $price ) . '" />' . "\\n";
+        }
+
+        // product:price:currency
+        $currency = get_woocommerce_currency();
+        if ( ! empty( $currency ) ) {
+            echo '<meta property="product:price:currency" content="' . esc_attr( $currency ) . '" />' . "\\n";
+        }
+
+        // product:availability
+        $availability = $product->is_in_stock() ? 'in stock' : 'out of stock';
+        echo '<meta property="product:availability" content="' . esc_attr( $availability ) . '" />' . "\\n";
+
+        // product:retailer_item_id (SKU)
+        $sku = $product->get_sku();
+        if ( ! empty( $sku ) ) {
+            echo '<meta property="product:retailer_item_id" content="' . esc_attr( $sku ) . '" />' . "\\n";
+        }
+    }
+
+    /**
+     * OG verilerini topla
+     * Öncelik: post meta > global ayar > otomatik
+     */
+    private function get_og_data() {
+        $data = array( 'title' => '', 'description' => '', 'url' => '' );
+
         if ( is_singular() ) {
             $post_id = get_queried_object_id();
-            $custom_title = get_post_meta( $post_id, '_wpsm_title', true );
 
-            if ( ! empty( $custom_title ) ) {
-                return $this->replace_template_variables( $custom_title, $sep );
+            // Post meta
+            $data['title'] = get_post_meta( $post_id, '_wpsm_og_title', true );
+            $data['description'] = get_post_meta( $post_id, '_wpsm_og_description', true );
+
+            // SEO meta fallback
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = get_post_meta( $post_id, '_wpsm_title', true );
             }
-            return $title;
-        }
-
-        // Ana sayfa
-        if ( is_front_page() ) {
-            $home_title = $this->options->get( 'home_title', '' );
-            if ( ! empty( $home_title ) ) {
-                return $this->replace_template_variables( $home_title, $sep );
-            }
-        }
-
-        // Arşiv sayfaları
-        if ( is_archive() ) {
-            return get_the_archive_title() . ' ' . $sep . ' ' . get_bloginfo( 'name' );
-        }
-
-        // Arama sayfası
-        if ( is_search() ) {
-            return sprintf( __( 'Arama: %s', 'wp-seo-master' ), get_search_query() )
-                . ' ' . $sep . ' ' . get_bloginfo( 'name' );
-        }
-
-        // 404 sayfası
-        if ( is_404() ) {
-            return __( 'Sayfa Bulunamadı', 'wp-seo-master' ) . ' ' . $sep . ' ' . get_bloginfo( 'name' );
-        }
-
-        return $title;
-    }
-
-    /**
-     * Şablon değişkenlerini değiştir
-     *
-     * %%title%%, %%sitename%%, %%sep%%, %%page%%, %%category%%,
-     * %%tag%%, %%search_query%%, %%date%%, %%author%%
-     */
-    private function replace_template_variables( $template, $sep = '' ) {
-        if ( empty( $sep ) ) {
-            $sep = $this->options->get( 'title_separator', '|' );
-        }
-
-        $replacements = array(
-            '%%title%%'        => $this->get_page_title(),
-            '%%sitename%%'     => get_bloginfo( 'name' ),
-            '%%sep%%'          => $sep,
-            '%%page%%'         => $this->get_page_number(),
-            '%%category%%'     => $this->get_category_name(),
-            '%%tag%%'          => $this->get_tag_name(),
-            '%%search_query%%' => get_search_query(),
-            '%%date%%'         => is_date() ? get_the_date() : '',
-            '%%author%%'       => is_author() ? get_the_author() : '',
-        );
-
-        $replacements = apply_filters( 'wpsm_title_template_variables', $replacements );
-
-        return trim( str_replace(
-            array_keys( $replacements ),
-            array_values( $replacements ),
-            $template
-        ));
-    }
-
-    /**
-     * Meta description çıktısı
-     *
-     * Öncelik: post meta > excerpt > otomatik ilk 160 karakter
-     */
-    private function output_description() {
-        $description = '';
-
-        if ( is_singular() ) {
-            $post_id = get_queried_object_id();
-            $description = get_post_meta( $post_id, '_wpsm_description', true );
-
-            if ( empty( $description ) ) {
-                $description = get_the_excerpt( $post_id );
+            if ( empty( $data['description'] ) ) {
+                $data['description'] = get_post_meta( $post_id, '_wpsm_description', true );
             }
 
-            if ( empty( $description ) ) {
-                $post = get_post( $post_id );
-                if ( $post ) {
-                    $description = wp_trim_words(
-                        wp_strip_all_tags( $post->post_content ),
-                        25, '...'
-                    );
+            // Otomatik
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = get_the_title( $post_id );
+            }
+            if ( empty( $data['description'] ) ) {
+                $excerpt = get_the_excerpt( $post_id );
+                if ( ! empty( $excerpt ) ) {
+                    $data['description'] = wp_trim_words( $excerpt, 25, '...' );
                 }
             }
+
+            $data['url'] = get_permalink( $post_id );
         }
 
         if ( is_front_page() ) {
-            $description = $this->options->get( 'home_description', '' );
-            if ( empty( $description ) ) {
-                $description = get_bloginfo( 'description' );
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = $this->options->get( 'home_title', '' );
+                if ( empty( $data['title'] ) ) {
+                    $data['title'] = get_bloginfo( 'name' );
+                }
             }
+            if ( empty( $data['description'] ) ) {
+                $data['description'] = $this->options->get( 'home_description', '' );
+                if ( empty( $data['description'] ) ) {
+                    $data['description'] = get_bloginfo( 'description' );
+                }
+            }
+            $data['url'] = home_url( '/' );
         }
 
         if ( is_archive() ) {
-            $description = wp_strip_all_tags( get_the_archive_description() );
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = get_the_archive_title();
+            }
+            if ( empty( $data['description'] ) ) {
+                $data['description'] = wp_strip_all_tags( get_the_archive_description() );
+            }
+            $data['url'] = $this->get_archive_url();
         }
 
-        if ( ! empty( $description ) ) {
-            if ( strlen( $description ) > 160 ) {
-                $description = substr( $description, 0, 157 ) . '...';
-            }
-            echo '<meta name="description" content="' . esc_attr( $description ) . '" />' . "\\n";
+        if ( is_search() ) {
+            $search_query = get_search_query();
+            $data['title'] = sprintf( __( 'Arama: %s', 'wp-seo-master' ), $search_query );
+            $data['url'] = get_search_link();
         }
+
+        return $data;
     }
 
     /**
-     * Robots meta çıktısı
-     *
-     * Arama, 404, tarih arşivleri için otomatik noindex.
-     * post meta _wpsm_robots ile override.
+     * OG görsel verilerini topla
+     * Öncelik: post meta _wpsm_og_image > featured image > default_og_image
      */
-    private function output_robots() {
-        $robots = array();
+    private function get_og_image() {
+        $image_data = array( 'url' => '', 'width' => '', 'height' => '', 'alt' => '' );
 
-        // Otomatik noindex
-        if ( is_search() || is_404() ) {
-            $robots[] = 'noindex';
-        }
-
-        if ( is_date() ) {
-            $robots[] = 'noindex';
-            $robots[] = 'follow';
-        }
-
-        // Singular - post meta override
         if ( is_singular() ) {
             $post_id = get_queried_object_id();
-            $post_robots = get_post_meta( $post_id, '_wpsm_robots', true );
 
-            if ( ! empty( $post_robots ) && is_array( $post_robots ) ) {
-                $robots = $post_robots;
-            }
-        }
+            // Özel OG görseli
+            $custom_image = get_post_meta( $post_id, '_wpsm_og_image', true );
 
-        if ( empty( $robots ) ) return;
-
-        echo '<meta name="robots" content="' . esc_attr( implode( ', ', $robots ) ) . '" />' . "\\n";
-    }
-
-    /**
-     * Webmaster doğrulama kodları (sadece ana sayfada)
-     */
-    private function output_verification_codes() {
-        if ( ! is_front_page() ) return;
-
-        $codes = array(
-            'google_verification'    => 'google-site-verification',
-            'bing_verification'      => 'msvalidate.01',
-            'yandex_verification'    => 'yandex-verification',
-            'pinterest_verification' => 'p:domain_verify',
-        );
-
-        foreach ( $codes as $option_key => $meta_name ) {
-            $value = $this->options->get( $option_key, '' );
-            if ( ! empty( $value ) ) {
-                echo '<meta name="' . esc_attr( $meta_name ) . '" content="' . esc_attr( $value ) . '" />' . "\\n";
-            }
-        }
-    }
-
-    // Helper metodlar
-    private function get_page_title() { /* ... */ }
-    private function get_page_number() { /* ... */ }
-    private function get_category_name() { /* ... */ }
-    private function get_tag_name() { /* ... */ }
-}`,
-  },
-  {
-    id: 'robots',
-    name: 'class-robots.php',
-    path: 'includes/Frontend/class-robots.php',
-    description: 'Robots yönetimi - wp_robots filter, robots.txt, sitemap URL',
-    language: 'php',
-    code: `<?php
-/**
- * Robots Sınıfı
- *
- * robots.txt dosyasını dinamik olarak oluşturur.
- * Sitemap URL'ini otomatik ekler.
- *
- * @package WPSM\\Frontend
- * @since 1.0.0
- */
-
-namespace WPSM\\Frontend;
-
-if ( ! defined( 'ABSPATH' ) ) { exit; }
-
-class Class_Robots {
-
-    private $options;
-
-    public function __construct( $options ) {
-        $this->options = $options;
-    }
-
-    /**
-     * Robots meta etiketini filtrele (wp_robots filter - WP 5.7+)
-     *
-     * Post meta _wpsm_robots ile override edilir.
-     * Arama, 404, tarih arşivleri için otomatik noindex.
-     *
-     * @param array $robots Mevcut robots direktifleri
-     * @return array Düzenlenmiş robots direktifleri
-     */
-    public function modify_robots( $robots ) {
-        // Singular sayfa - post meta kontrolü
-        if ( is_singular() ) {
-            $post_id = get_queried_object_id();
-            $post_robots = get_post_meta( $post_id, '_wpsm_robots', true );
-
-            if ( ! empty( $post_robots ) && is_array( $post_robots ) ) {
-                foreach ( $post_robots as $directive ) {
-                    switch ( $directive ) {
-                        case 'noindex':
-                            $robots['noindex'] = true;
-                            break;
-                        case 'nofollow':
-                            $robots['nofollow'] = true;
-                            break;
-                        case 'noarchive':
-                            $robots['noarchive'] = true;
-                            break;
-                        case 'nosnippet':
-                            $robots['nosnippet'] = true;
-                            break;
-                        case 'noimageindex':
-                            $robots['noimageindex'] = true;
-                            break;
+            if ( ! empty( $custom_image ) ) {
+                $image_data['url'] = $custom_image;
+                $attachment_id = attachment_url_to_postid( $custom_image );
+                if ( $attachment_id ) {
+                    $meta = wp_get_attachment_metadata( $attachment_id );
+                    if ( $meta ) {
+                        $image_data['width'] = $meta['width'];
+                        $image_data['height'] = $meta['height'];
+                    }
+                    $image_data['alt'] = get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
+                }
+            } else {
+                // Featured image
+                $thumbnail_id = get_post_thumbnail_id( $post_id );
+                if ( $thumbnail_id ) {
+                    $image = wp_get_attachment_image_src( $thumbnail_id, 'large' );
+                    if ( $image ) {
+                        $image_data['url'] = $image[0];
+                        $image_data['width'] = $image[1];
+                        $image_data['height'] = $image[2];
+                        $image_data['alt'] = get_post_meta( $thumbnail_id, '_wp_attachment_image_alt', true );
                     }
                 }
             }
         }
 
-        // Arama ve 404 için otomatik noindex
-        if ( is_search() || is_404() ) {
-            $robots['noindex'] = true;
+        // Varsayılan OG görseli
+        if ( empty( $image_data['url'] ) ) {
+            $default = $this->options->get( 'default_og_image', '' );
+            if ( ! empty( $default ) ) {
+                $image_data['url'] = $default;
+                $attachment_id = attachment_url_to_postid( $default );
+                if ( $attachment_id ) {
+                    $meta = wp_get_attachment_metadata( $attachment_id );
+                    if ( $meta ) {
+                        $image_data['width'] = $meta['width'];
+                        $image_data['height'] = $meta['height'];
+                    }
+                    $image_data['alt'] = get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
+                }
+            }
         }
 
-        // Tarih arşivleri
-        if ( is_date() ) {
-            $robots['noindex'] = true;
-        }
-
-        return $robots;
+        return $image_data;
     }
 
-    /**
-     * Robots.txt içeriğini filtrele
-     *
-     * robots_txt filter'ı ile çalışır.
-     * Sitemap URL'ini otomatik ekler.
-     * Admin panelden override edilebilir.
-     *
-     * @param string $output Varsayılan robots.txt
-     * @param bool   $public Site herkese açık mı?
-     * @return string Düzenlenmiş robots.txt
-     */
-    public function filter_robots_txt( $output, $public ) {
-        // Site özel ise
-        if ( ! $public ) {
-            return "User-agent: *\\nDisallow: /";
-        }
-
-        // Admin panelden özel robots.txt
-        $custom_robots = $this->options->get( 'robots_txt', '' );
-
-        if ( ! empty( $custom_robots ) ) {
-            $output = $custom_robots;
-        } else {
-            // Varsayılan WordPress robots.txt
-            $output  = "User-agent: *\\n";
-            $output .= "Disallow: /wp-admin/\\n";
-            $output .= "Allow: /wp-admin/admin-ajax.php\\n";
-        }
-
-        // Sitemap URL'ini ekle
-        $sitemap_enabled = $this->options->get( 'enable_sitemap', true );
-
-        if ( $sitemap_enabled ) {
-            $sitemap_url = home_url( '/sitemap.xml' );
-            $output .= "\\n\\nSitemap: " . esc_url( $sitemap_url );
-        }
-
-        return apply_filters( 'wpsm_robots_txt', $output );
+    private function get_og_type() {
+        if ( is_singular() ) return 'article';
+        if ( $this->is_woocommerce_product() ) return 'product';
+        return 'website';
     }
 
-    /**
-     * Robots.txt rewrite kuralını kaydet
-     */
-    public function register_robots_rewrite() {
-        add_filter( 'robots_txt', array( $this, 'filter_robots_txt' ), 10, 2 );
+    private function is_woocommerce_product() {
+        if ( ! function_exists( 'is_product' ) ) return false;
+        return is_product();
+    }
+
+    private function get_archive_url() {
+        if ( is_category() ) return get_category_link( get_queried_object_id() );
+        if ( is_tag() ) return get_tag_link( get_queried_object_id() );
+        if ( is_tax() ) return get_term_link( get_queried_object() );
+        if ( is_author() ) return get_author_posts_url( get_queried_object_id() );
+        if ( is_post_type_archive() ) return get_post_type_archive_link( get_query_var( 'post_type' ) );
+        return home_url( $_SERVER['REQUEST_URI'] );
     }
 }`,
   },
   {
-    id: 'canonical',
-    name: 'class-canonical.php',
-    path: 'includes/Frontend/class-canonical.php',
-    description: 'Canonical URL - rel=canonical, pagination prev/next',
+    id: 'twitter',
+    name: 'class-twitter-cards.php',
+    path: 'includes/Frontend/class-twitter-cards.php',
+    description: 'Twitter Cards meta etiketleri - card, site, creator, title, description, image',
     language: 'php',
     code: `<?php
 /**
- * Canonical Sınıfı
+ * Twitter Cards Sınıfı
  *
- * Canonical URL çıktısını yönetir.
- * rel="canonical" ve opsiyonel rel="prev"/"next".
+ * Twitter/X için meta etiketleri oluşturur.
+ * wp_head priority 6
  *
  * @package WPSM\\Frontend
  * @since 1.0.0
@@ -404,157 +392,219 @@ namespace WPSM\\Frontend;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-class Class_Canonical {
+class Class_Twitter_Cards {
 
     private $options;
+    private $other_seo_active = false;
 
     public function __construct( $options ) {
         $this->options = $options;
+        $this->check_other_seo_plugins();
+    }
+
+    private function check_other_seo_plugins() {
+        $other_plugins = array(
+            'WPSEO_VERSION',
+            'AIOSEO_VERSION',
+            'RANK_MATH_VERSION',
+            'SEOPRESS_VERSION',
+        );
+
+        foreach ( $other_plugins as $constant ) {
+            if ( defined( $constant ) ) {
+                $this->other_seo_active = true;
+                break;
+            }
+        }
     }
 
     /**
-     * Canonical URL çıktısı (wp_head)
+     * Twitter Cards etiketlerini çıktıla (wp_head priority 6)
      */
-    public function output_canonical() {
-        $canonical = $this->get_canonical_url();
+    public function output_twitter_cards() {
+        if ( $this->other_seo_active ) return;
 
-        if ( ! empty( $canonical ) ) {
-            echo '<link rel="canonical" href="' . esc_url( $canonical ) . '" />' . "\\n";
+        $enabled = $this->options->get( 'enable_twitter', true );
+        if ( ! $enabled ) return;
+
+        // twitter:card
+        $card_type = $this->options->get( 'twitter_card_type', 'summary_large_image' );
+        echo '<meta name="twitter:card" content="' . esc_attr( $card_type ) . '" />' . "\\n";
+
+        // twitter:site
+        $twitter_site = $this->options->get( 'twitter_site', '' );
+        if ( ! empty( $twitter_site ) ) {
+            // @ işareti ekle (yoksa)
+            if ( strpos( $twitter_site, '@' ) !== 0 ) {
+                $twitter_site = '@' . $twitter_site;
+            }
+            echo '<meta name="twitter:site" content="' . esc_attr( $twitter_site ) . '" />' . "\\n";
         }
 
-        // Pagination prev/next
-        $this->output_pagination_links();
+        // Twitter verilerini topla
+        $twitter_data = $this->get_twitter_data();
+
+        // twitter:title
+        if ( ! empty( $twitter_data['title'] ) ) {
+            echo '<meta name="twitter:title" content="' . esc_attr( $twitter_data['title'] ) . '" />' . "\\n";
+        }
+
+        // twitter:description
+        if ( ! empty( $twitter_data['description'] ) ) {
+            echo '<meta name="twitter:description" content="' . esc_attr( $twitter_data['description'] ) . '" />' . "\\n";
+        }
+
+        // twitter:image
+        if ( ! empty( $twitter_data['image'] ) ) {
+            echo '<meta name="twitter:image" content="' . esc_url( $twitter_data['image'] ) . '" />' . "\\n";
+
+            // twitter:image:alt
+            if ( ! empty( $twitter_data['image_alt'] ) ) {
+                echo '<meta name="twitter:image:alt" content="' . esc_attr( $twitter_data['image_alt'] ) . '" />' . "\\n";
+            }
+        }
+
+        // twitter:creator (post author)
+        if ( is_singular() ) {
+            $post_id = get_queried_object_id();
+            $creator = get_post_meta( $post_id, '_wpsm_twitter_creator', true );
+
+            if ( empty( $creator ) ) {
+                // Yazarın Twitter hesabını al
+                $author_id = get_post_field( 'post_author', $post_id );
+                $creator = get_the_author_meta( 'twitter', $author_id );
+            }
+
+            if ( ! empty( $creator ) ) {
+                if ( strpos( $creator, '@' ) !== 0 ) {
+                    $creator = '@' . $creator;
+                }
+                echo '<meta name="twitter:creator" content="' . esc_attr( $creator ) . '" />' . "\\n";
+            }
+        }
     }
 
     /**
-     * Canonical URL'ini döndür
-     *
-     * Öncelik: post meta _wpsm_canonical > get_permalink() > home_url()
-     *
-     * @return string
+     * Twitter verilerini topla
+     * Öncelik: post meta > OG meta > SEO meta > otomatik
      */
-    public function get_canonical_url() {
-        // Singular sayfa
+    private function get_twitter_data() {
+        $data = array(
+            'title'       => '',
+            'description' => '',
+            'image'       => '',
+            'image_alt'   => '',
+        );
+
         if ( is_singular() ) {
             $post_id = get_queried_object_id();
-            $custom = get_post_meta( $post_id, '_wpsm_canonical', true );
 
-            if ( ! empty( $custom ) ) {
-                return esc_url( $custom );
+            // Twitter meta
+            $data['title'] = get_post_meta( $post_id, '_wpsm_twitter_title', true );
+            $data['description'] = get_post_meta( $post_id, '_wpsm_twitter_description', true );
+
+            // OG meta fallback
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = get_post_meta( $post_id, '_wpsm_og_title', true );
             }
-            return get_permalink( $post_id );
+            if ( empty( $data['description'] ) ) {
+                $data['description'] = get_post_meta( $post_id, '_wpsm_og_description', true );
+            }
+
+            // SEO meta fallback
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = get_post_meta( $post_id, '_wpsm_title', true );
+            }
+            if ( empty( $data['description'] ) ) {
+                $data['description'] = get_post_meta( $post_id, '_wpsm_description', true );
+            }
+
+            // Otomatik
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = get_the_title( $post_id );
+            }
+            if ( empty( $data['description'] ) ) {
+                $excerpt = get_the_excerpt( $post_id );
+                if ( ! empty( $excerpt ) ) {
+                    $data['description'] = wp_trim_words( $excerpt, 25, '...' );
+                }
+            }
+
+            // Twitter görseli
+            $twitter_image = get_post_meta( $post_id, '_wpsm_twitter_image', true );
+
+            if ( ! empty( $twitter_image ) ) {
+                $data['image'] = $twitter_image;
+                $attachment_id = attachment_url_to_postid( $twitter_image );
+                if ( $attachment_id ) {
+                    $data['image_alt'] = get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
+                }
+            } else {
+                // OG görseli fallback
+                $og_image = get_post_meta( $post_id, '_wpsm_og_image', true );
+                if ( ! empty( $og_image ) ) {
+                    $data['image'] = $og_image;
+                    $attachment_id = attachment_url_to_postid( $og_image );
+                    if ( $attachment_id ) {
+                        $data['image_alt'] = get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
+                    }
+                } else {
+                    // Featured image
+                    $thumbnail_id = get_post_thumbnail_id( $post_id );
+                    if ( $thumbnail_id ) {
+                        $image = wp_get_attachment_image_src( $thumbnail_id, 'large' );
+                        if ( $image ) {
+                            $data['image'] = $image[0];
+                            $data['image_alt'] = get_post_meta( $thumbnail_id, '_wp_attachment_image_alt', true );
+                        }
+                    }
+                }
+            }
         }
 
         // Ana sayfa
         if ( is_front_page() ) {
-            return home_url( '/' );
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = $this->options->get( 'home_title', '' );
+                if ( empty( $data['title'] ) ) {
+                    $data['title'] = get_bloginfo( 'name' );
+                }
+            }
+            if ( empty( $data['description'] ) ) {
+                $data['description'] = $this->options->get( 'home_description', '' );
+                if ( empty( $data['description'] ) ) {
+                    $data['description'] = get_bloginfo( 'description' );
+                }
+            }
+
+            // Varsayılan OG görseli
+            $default_image = $this->options->get( 'default_og_image', '' );
+            if ( ! empty( $default_image ) ) {
+                $data['image'] = $default_image;
+                $attachment_id = attachment_url_to_postid( $default_image );
+                if ( $attachment_id ) {
+                    $data['image_alt'] = get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
+                }
+            }
         }
 
-        // Arşiv sayfaları
+        // Arşiv
         if ( is_archive() ) {
-            return $this->get_archive_canonical();
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = get_the_archive_title();
+            }
+            if ( empty( $data['description'] ) ) {
+                $data['description'] = wp_strip_all_tags( get_the_archive_description() );
+            }
         }
 
         // Arama
         if ( is_search() ) {
-            return get_search_link();
+            $search_query = get_search_query();
+            $data['title'] = sprintf( __( 'Arama: %s', 'wp-seo-master' ), $search_query );
         }
 
-        // 404
-        if ( is_404() ) {
-            return home_url( '/' );
-        }
-
-        return home_url( $_SERVER['REQUEST_URI'] );
-    }
-
-    /**
-     * Arşiv canonical URL
-     */
-    private function get_archive_canonical() {
-        if ( is_category() ) {
-            return get_category_link( get_queried_object_id() );
-        }
-
-        if ( is_tag() ) {
-            return get_tag_link( get_queried_object_id() );
-        }
-
-        if ( is_tax() ) {
-            return get_term_link( get_queried_object() );
-        }
-
-        if ( is_author() ) {
-            return get_author_posts_url( get_queried_object_id() );
-        }
-
-        if ( is_date() ) {
-            if ( is_day() ) {
-                return get_day_link(
-                    get_query_var( 'year' ),
-                    get_query_var( 'monthnum' ),
-                    get_query_var( 'day' )
-                );
-            } elseif ( is_month() ) {
-                return get_month_link(
-                    get_query_var( 'year' ),
-                    get_query_var( 'monthnum' )
-                );
-            } elseif ( is_year() ) {
-                return get_year_link( get_query_var( 'year' ) );
-            }
-        }
-
-        if ( is_post_type_archive() ) {
-            return get_post_type_archive_link( get_query_var( 'post_type' ) );
-        }
-
-        return home_url( $_SERVER['REQUEST_URI'] );
-    }
-
-    /**
-     * Pagination prev/next linkleri
-     *
-     * WP 4.1+ kaldırıldı ama bazı temalar için opsiyonel.
-     */
-    private function output_pagination_links() {
-        global $wp_query;
-
-        $paged = get_query_var( 'paged' );
-        if ( ! $paged || $paged < 2 ) return;
-
-        $max_pages = $wp_query->max_num_pages;
-
-        // Önceki sayfa
-        if ( $paged > 2 ) {
-            echo '<link rel="prev" href="' . esc_url( get_pagenum_link( $paged - 1 ) ) . '" />' . "\\n";
-        }
-
-        // Sonraki sayfa
-        if ( $paged < $max_pages ) {
-            echo '<link rel="next" href="' . esc_url( get_pagenum_link( $paged + 1 ) ) . '" />' . "\\n";
-        }
-    }
-
-    /**
-     * Post canonical URL'ini döndür
-     *
-     * @param int $post_id Post ID
-     * @return string
-     */
-    public function get_post_canonical( $post_id = null ) {
-        if ( ! $post_id ) {
-            $post_id = get_the_ID();
-        }
-
-        if ( ! $post_id ) return '';
-
-        $custom = get_post_meta( $post_id, '_wpsm_canonical', true );
-        if ( ! empty( $custom ) ) {
-            return esc_url( $custom );
-        }
-
-        return get_permalink( $post_id );
+        return $data;
     }
 }`,
   },
@@ -600,12 +650,12 @@ export default function CodeViewer() {
             KAYNAK KOD
           </span>
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            Frontend Meta Tag Çıktıları
+            Sosyal Medya Meta Tag'leri
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
-            3 dosya: Meta etiketleri, robots yönetimi, canonical URL.
-            wp_head hook'unda çalışır, diğer SEO eklentileri ile çakışma kontrolü,
-            şablon değişkenleri, otomatik noindex kuralları.
+            2 dosya: Open Graph (Facebook/LinkedIn) ve Twitter Cards.
+            Öncelik sistemi, görsel boyut kontrolü, WooCommerce desteği,
+            article/product etiketleri.
           </p>
         </div>
 
@@ -682,7 +732,7 @@ export default function CodeViewer() {
         </div>
 
         {/* Download Links */}
-        <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {files.map((file) => (
             <a
               key={file.id}
@@ -705,56 +755,183 @@ export default function CodeViewer() {
         </div>
 
         {/* HTML Output Preview */}
+        <div className="mt-12 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Open Graph Output */}
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center">
+              <span className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center mr-2">
+                <span className="text-blue-400 text-sm">f</span>
+              </span>
+              Open Graph Çıktısı
+            </h3>
+            <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-x-auto">
+              <div className="text-gray-500">&lt;!-- Open Graph Tags --&gt;</div>
+              <div className="mt-2">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> property</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"og:locale"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"tr_TR"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> property</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"og:type"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"article"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> property</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"og:title"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"Yazı Başlığı"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> property</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"og:image"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"https://.../image.jpg"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> property</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"og:image:width"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"1200"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1 text-gray-500">&lt;!-- Article Tags --&gt;</div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> property</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"article:published_time"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"2024-01-15T..."</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Twitter Cards Output */}
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center">
+              <span className="w-8 h-8 bg-sky-500/20 rounded-lg flex items-center justify-center mr-2">
+                <span className="text-sky-400 text-sm">𝕏</span>
+              </span>
+              Twitter Cards Çıktısı
+            </h3>
+            <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-x-auto">
+              <div className="text-gray-500">&lt;!-- Twitter Cards --&gt;</div>
+              <div className="mt-2">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> name</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"twitter:card"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"summary_large_image"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> name</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"twitter:site"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"@kullaniciadi"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> name</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"twitter:title"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"Yazı Başlığı"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> name</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"twitter:description"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"Kısa açıklama..."</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> name</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"twitter:image"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"https://.../image.jpg"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-red-400">&lt;meta</span>
+                <span className="text-blue-300"> name</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"twitter:creator"</span>
+                <span className="text-blue-300"> content</span>
+                <span className="text-white">=</span>
+                <span className="text-green-300">"@yazar"</span>
+                <span className="text-red-400"> /&gt;</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Priority System */}
         <div className="mt-12 p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
-          <h3 className="text-lg font-bold text-white mb-4">HTML Çıktı Önizleme</h3>
-          <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-x-auto">
-            <div className="text-gray-500">&lt;!-- wp_head output (priority 1) --&gt;</div>
-            <div className="mt-2">
-              <span className="text-red-400">&lt;title&gt;</span>
-              <span className="text-white">WordPress SEO Eklentisi</span>
-              <span className="text-purple-400"> | </span>
-              <span className="text-white">Site Adı</span>
-              <span className="text-red-400">&lt;/title&gt;</span>
+          <h3 className="text-lg font-bold text-white mb-4">Öncelik Sistemi</h3>
+          <div className="flex flex-col md:flex-row items-center justify-center gap-4 text-sm">
+            <div className="px-4 py-3 bg-purple-500/10 border border-purple-500/30 rounded-xl text-purple-300">
+              <div className="font-bold">1. Post Meta</div>
+              <div className="text-xs text-gray-400 mt-1">_wpsm_og_title, _wpsm_twitter_title</div>
             </div>
-            <div className="mt-1">
-              <span className="text-red-400">&lt;link</span>
-              <span className="text-blue-300"> rel</span>
-              <span className="text-white">=</span>
-              <span className="text-green-300">"canonical"</span>
-              <span className="text-blue-300"> href</span>
-              <span className="text-white">=</span>
-              <span className="text-green-300">"https://example.com/sayfa/"</span>
-              <span className="text-red-400"> /&gt;</span>
+            <svg className="w-6 h-6 text-gray-500 rotate-90 md:rotate-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+            </svg>
+            <div className="px-4 py-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-300">
+              <div className="font-bold">2. OG / Twitter Meta</div>
+              <div className="text-xs text-gray-400 mt-1">_wpsm_og_title → twitter_title</div>
             </div>
-            <div className="mt-1">
-              <span className="text-red-400">&lt;meta</span>
-              <span className="text-blue-300"> name</span>
-              <span className="text-white">=</span>
-              <span className="text-green-300">"description"</span>
-              <span className="text-blue-300"> content</span>
-              <span className="text-white">=</span>
-              <span className="text-green-300">"WordPress için en iyi SEO eklentisi..."</span>
-              <span className="text-red-400"> /&gt;</span>
+            <svg className="w-6 h-6 text-gray-500 rotate-90 md:rotate-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+            </svg>
+            <div className="px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-xl text-green-300">
+              <div className="font-bold">3. SEO Meta</div>
+              <div className="text-xs text-gray-400 mt-1">_wpsm_title, _wpsm_description</div>
             </div>
-            <div className="mt-1">
-              <span className="text-red-400">&lt;meta</span>
-              <span className="text-blue-300"> name</span>
-              <span className="text-white">=</span>
-              <span className="text-green-300">"robots"</span>
-              <span className="text-blue-300"> content</span>
-              <span className="text-white">=</span>
-              <span className="text-green-300">"index, follow"</span>
-              <span className="text-red-400"> /&gt;</span>
-            </div>
-            <div className="mt-1">
-              <span className="text-red-400">&lt;meta</span>
-              <span className="text-blue-300"> name</span>
-              <span className="text-white">=</span>
-              <span className="text-green-300">"google-site-verification"</span>
-              <span className="text-blue-300"> content</span>
-              <span className="text-white">=</span>
-              <span className="text-green-300">"abc123..."</span>
-              <span className="text-red-400"> /&gt;</span>
+            <svg className="w-6 h-6 text-gray-500 rotate-90 md:rotate-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+            </svg>
+            <div className="px-4 py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-yellow-300">
+              <div className="font-bold">4. Otomatik</div>
+              <div className="text-xs text-gray-400 mt-1">the_title, the_excerpt</div>
             </div>
           </div>
         </div>
@@ -762,45 +939,20 @@ export default function CodeViewer() {
         {/* Features */}
         <div className="mt-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { title: 'Title Override', desc: 'pre_get_document_title filter' },
-            { title: 'Şablon Değişkenleri', desc: '%%title%%, %%sitename%%, %%sep%%...' },
-            { title: 'Çakışma Koruması', desc: 'Yoast, AIOSEO, Rank Math kontrolü' },
-            { title: 'Otomatik Noindex', desc: 'Search, 404, tarih arşivleri' },
-            { title: 'Robots.txt', desc: 'Dinamik, sitemap URL otomatik' },
-            { title: 'Canonical', desc: 'Post meta > permalink > home_url' },
-            { title: 'Pagination', desc: 'rel="prev" / rel="next"' },
-            { title: 'Escape', desc: 'esc_attr, esc_url ile güvenli' },
+            { title: 'OG Temel', desc: 'locale, type, title, desc, url, site_name' },
+            { title: 'OG Görsel', desc: 'image, width, height, alt (1200x630)' },
+            { title: 'Article Tags', desc: 'published_time, author, section, tag' },
+            { title: 'Product Tags', desc: 'price, currency, availability (WooCommerce)' },
+            { title: 'Twitter Card', desc: 'summary veya summary_large_image' },
+            { title: 'Twitter Creator', desc: 'Post author veya özel twitter_creator' },
+            { title: 'Görsel Öncelik', desc: 'OG > Featured > Default' },
+            { title: 'Escape', desc: 'esc_attr, esc_url ile güvenli çıktı' },
           ].map((item, i) => (
             <div key={i} className="p-4 bg-white/[0.02] border border-white/5 rounded-xl">
               <p className="text-sm font-medium text-purple-300">{item.title}</p>
               <p className="text-xs text-gray-500 mt-1">{item.desc}</p>
             </div>
           ))}
-        </div>
-
-        {/* Conditional Logic */}
-        <div className="mt-12 p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
-          <h3 className="text-lg font-bold text-white mb-4">WordPress Conditional Kontrolleri</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {[
-              'is_singular()',
-              'is_front_page()',
-              'is_archive()',
-              'is_search()',
-              'is_404()',
-              'is_date()',
-              'is_category()',
-              'is_tag()',
-              'is_author()',
-              'is_post_type_archive()',
-              'is_tax()',
-              'is_paged()',
-            ].map((fn, i) => (
-              <code key={i} className="text-xs bg-blue-500/10 text-blue-300 px-3 py-1.5 rounded border border-blue-500/20 text-center">
-                {fn}
-              </code>
-            ))}
-          </div>
         </div>
       </div>
     </section>
