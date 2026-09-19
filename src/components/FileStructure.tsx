@@ -65,12 +65,12 @@ const fileTree = [
             type: 'folder',
             level: 2,
             children: [
-              { name: 'class-meta-tags.php', type: 'file', description: 'Title, desc, keywords', icon: '🏷️' },
+              { name: 'class-meta-tags.php', type: 'file', description: 'Title, desc, robots, verification', icon: '🏷️' },
               { name: 'class-opengraph.php', type: 'file', description: 'Open Graph etiketleri', icon: '📱' },
               { name: 'class-twitter-cards.php', type: 'file', description: 'Twitter Card etiketleri', icon: '🐦' },
-              { name: 'class-canonical.php', type: 'file', description: 'Canonical URL', icon: '🔗' },
+              { name: 'class-canonical.php', type: 'file', description: 'rel=canonical, prev/next', icon: '🔗' },
               { name: 'class-breadcrumbs.php', type: 'file', description: 'Breadcrumb navigasyon', icon: '🧭' },
-              { name: 'class-robots.php', type: 'file', description: 'Robots meta yönetimi', icon: '🤖' },
+              { name: 'class-robots.php', type: 'file', description: 'wp_robots, robots.txt', icon: '🤖' },
             ],
           },
           {

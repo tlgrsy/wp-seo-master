@@ -193,7 +193,10 @@ class Class_Plugin {
      * Site frontend'inde gerekli olan tüm action ve filter'ları ekler.
      */
     private function register_frontend_hooks() {
-        // Meta etiketleri (title, description, keywords)
+        // Title tag override (pre_get_document_title filter - WP 4.4+)
+        add_filter( 'pre_get_document_title', array( $this->frontend_modules['meta_tags'], 'filter_document_title' ), 10, 3 );
+
+        // Meta etiketleri (description, robots, verification)
         add_action( 'wp_head', array( $this->frontend_modules['meta_tags'], 'output_meta_tags' ), 1 );
 
         // Open Graph etiketleri
@@ -205,8 +208,11 @@ class Class_Plugin {
         // Canonical URL
         add_action( 'wp_head', array( $this->frontend_modules['canonical'], 'output_canonical' ), 2 );
 
-        // Robots meta
+        // Robots meta (wp_robots filter - WP 5.7+)
         add_filter( 'wp_robots', array( $this->frontend_modules['robots'], 'modify_robots' ) );
+
+        // Robots.txt (robots_txt filter)
+        add_filter( 'robots_txt', array( $this->frontend_modules['robots'], 'filter_robots_txt' ), 10, 2 );
 
         // Schema markup
         add_action( 'wp_head', array( $this->frontend_modules['schema_manager'], 'output_schema' ), 10 );
