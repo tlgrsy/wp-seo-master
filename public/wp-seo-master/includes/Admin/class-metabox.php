@@ -93,7 +93,6 @@ class Class_Metabox {
      * context: normal, priority: high
      */
     public function add_meta_boxes() {
-        // Tüm public post type'ları al
         $post_types = $this->get_supported_post_types();
 
         foreach ( $post_types as $post_type ) {
@@ -107,25 +106,23 @@ class Class_Metabox {
             );
         }
 
-        // REST API meta alanlarını kaydet (Gutenberg uyumluluğu)
+        // Gutenberg uyumluluğu - REST API meta kaydı
         $this->register_post_meta();
     }
 
     /**
      * Desteklenen post type'ları döndür
      *
-     * @return array Post type isimleri
+     * @return array
      */
     private function get_supported_post_types() {
         $post_types = get_post_types( array( 'public' => true ) );
-
-        // Attachment'ı hariç tut
         unset( $post_types['attachment'] );
 
         /**
          * Desteklenen post type'ları filtrele
          *
-         * @param array $post_types Post type isimleri
+         * @param array $post_types
          */
         return apply_filters( 'wpsm_supported_post_types', $post_types );
     }
@@ -133,114 +130,41 @@ class Class_Metabox {
     /**
      * Post meta alanlarını REST API'ye kaydet
      *
-     * Gutenberg uyumluluğu için tüm meta alanlarını
-     * show_in_rest=true ile register eder.
+     * Gutenberg uyumluluğu için show_in_rest=true, single=true.
      * auth_callback ile yetki kontrolü yapar.
      */
     private function register_post_meta() {
         $post_types = $this->get_supported_post_types();
 
+        // String meta alanları
+        $string_fields = array(
+            '_wpsm_title',
+            '_wpsm_description',
+            '_wpsm_focus_keyword',
+            '_wpsm_canonical',
+            '_wpsm_og_title',
+            '_wpsm_og_description',
+            '_wpsm_og_image',
+            '_wpsm_twitter_title',
+            '_wpsm_twitter_description',
+            '_wpsm_twitter_image',
+            '_wpsm_schema_type',
+            '_wpsm_breadcrumb_title',
+        );
+
         foreach ( $post_types as $post_type ) {
-            // SEO Title
-            register_post_meta( $post_type, '_wpsm_title', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_text_field',
-            ));
+            // String alanlar
+            foreach ( $string_fields as $key ) {
+                register_post_meta( $post_type, $key, array(
+                    'show_in_rest'      => true,
+                    'single'            => true,
+                    'type'              => 'string',
+                    'auth_callback'     => array( $this, 'meta_auth_callback' ),
+                    'sanitize_callback' => 'sanitize_text_field',
+                ));
+            }
 
-            // Meta Description
-            register_post_meta( $post_type, '_wpsm_description', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_textarea_field',
-            ));
-
-            // Focus Keyword
-            register_post_meta( $post_type, '_wpsm_focus_keyword', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_text_field',
-            ));
-
-            // Canonical URL
-            register_post_meta( $post_type, '_wpsm_canonical', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'esc_url_raw',
-            ));
-
-            // OG Title
-            register_post_meta( $post_type, '_wpsm_og_title', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_text_field',
-            ));
-
-            // OG Description
-            register_post_meta( $post_type, '_wpsm_og_description', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_textarea_field',
-            ));
-
-            // OG Image
-            register_post_meta( $post_type, '_wpsm_og_image', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'esc_url_raw',
-            ));
-
-            // Twitter Title
-            register_post_meta( $post_type, '_wpsm_twitter_title', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_text_field',
-            ));
-
-            // Twitter Description
-            register_post_meta( $post_type, '_wpsm_twitter_description', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_textarea_field',
-            ));
-
-            // Twitter Image
-            register_post_meta( $post_type, '_wpsm_twitter_image', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'esc_url_raw',
-            ));
-
-            // Schema Type
-            register_post_meta( $post_type, '_wpsm_schema_type', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_text_field',
-            ));
-
-            // Schema Data (JSON)
+            // Schema Data (object/JSON)
             register_post_meta( $post_type, '_wpsm_schema_data', array(
                 'show_in_rest'  => array(
                     'schema' => array(
@@ -265,39 +189,18 @@ class Class_Metabox {
                 'type'          => 'array',
                 'auth_callback' => array( $this, 'meta_auth_callback' ),
             ));
-
-            // Breadcrumb Title
-            register_post_meta( $post_type, '_wpsm_breadcrumb_title', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_text_field',
-            ));
         }
     }
 
     /**
      * Meta yetki kontrolü callback
      *
-     * Kullanıcının ilgili post'u düzenleme yetkisi var mı kontrol eder.
-     *
-     * @param bool   $allowed İzin durumu
+     * @param bool   $allowed  İzin durumu
      * @param string $meta_key Meta anahtarı
-     * @param int    $post_id Post ID
-     * @param int    $user_id Kullanıcı ID
-     * @param string $cap Yetki
-     * @param array  $caps Yetkiler dizisi
+     * @param int    $post_id  Post ID
      * @return bool
      */
-    public function meta_auth_callback( $allowed, $meta_key, $post_id, $user_id, $cap, $caps ) {
-        // Post var mı kontrol et
-        $post = get_post( $post_id );
-        if ( ! $post ) {
-            return false;
-        }
-
-        // Kullanıcının post'u düzenleme yetkisi var mı
+    public function meta_auth_callback( $allowed, $meta_key, $post_id ) {
         return current_user_can( 'edit_post', $post_id );
     }
 
@@ -310,11 +213,11 @@ class Class_Metabox {
         // Nonce field
         wp_nonce_field( self::NONCE_ACTION, self::NONCE_NAME );
 
-        // Post ID
         $post_id = $post->ID;
+        $meta    = $this->get_all_meta( $post_id );
 
-        // Mevcut meta değerlerini al
-        $meta = $this->get_all_meta( $post_id );
+        // Template'e Class_Metabox instance'ını da gönder
+        $wpsm_metabox = $this;
 
         // Template'i yükle
         include WPSM_INCLUDES_PATH . 'Admin/views/metabox.php';
@@ -324,7 +227,7 @@ class Class_Metabox {
      * Tüm meta değerlerini döndür
      *
      * @param int $post_id Post ID
-     * @return array Meta değerleri
+     * @return array
      */
     private function get_all_meta( $post_id ) {
         $meta = array();
@@ -335,7 +238,7 @@ class Class_Metabox {
             // Schema data JSON decode
             if ( '_wpsm_schema_data' === $key && ! empty( $value ) ) {
                 $decoded = json_decode( $value, true );
-                $value = is_array( $decoded ) ? $decoded : array();
+                $value   = is_array( $decoded ) ? $decoded : array();
             }
 
             // Robots array
@@ -353,7 +256,6 @@ class Class_Metabox {
      * Post kaydederken meta alanlarını kaydet
      *
      * save_post hook'u ile tetiklenir.
-     * Nonce, autosave, revision ve yetki kontrolleri yapar.
      *
      * @param int      $post_id Post ID
      * @param \WP_Post $post    Post objesi
@@ -365,7 +267,6 @@ class Class_Metabox {
         if ( ! isset( $_POST[ self::NONCE_NAME ] ) ) {
             return;
         }
-
         if ( ! wp_verify_nonce( $_POST[ self::NONCE_NAME ], self::NONCE_ACTION ) ) {
             return;
         }
@@ -380,7 +281,7 @@ class Class_Metabox {
             return;
         }
 
-        // 4. Yetki kontrolü (manage_options veya edit_post)
+        // 4. Yetki kontrolü
         if ( ! current_user_can( 'edit_post', $post_id ) ) {
             return;
         }
@@ -395,62 +296,52 @@ class Class_Metabox {
 
         // SEO Title
         if ( isset( $_POST['wpsm_title'] ) ) {
-            $title = sanitize_text_field( wp_unslash( $_POST['wpsm_title'] ) );
-            update_post_meta( $post_id, '_wpsm_title', $title );
+            update_post_meta( $post_id, '_wpsm_title', sanitize_text_field( wp_unslash( $_POST['wpsm_title'] ) ) );
         }
 
         // Meta Description
         if ( isset( $_POST['wpsm_description'] ) ) {
-            $description = sanitize_textarea_field( wp_unslash( $_POST['wpsm_description'] ) );
-            update_post_meta( $post_id, '_wpsm_description', $description );
+            update_post_meta( $post_id, '_wpsm_description', sanitize_textarea_field( wp_unslash( $_POST['wpsm_description'] ) ) );
         }
 
         // Focus Keyword
         if ( isset( $_POST['wpsm_focus_keyword'] ) ) {
-            $keyword = sanitize_text_field( wp_unslash( $_POST['wpsm_focus_keyword'] ) );
-            update_post_meta( $post_id, '_wpsm_focus_keyword', $keyword );
+            update_post_meta( $post_id, '_wpsm_focus_keyword', sanitize_text_field( wp_unslash( $_POST['wpsm_focus_keyword'] ) ) );
         }
 
         // Canonical URL
         if ( isset( $_POST['wpsm_canonical'] ) ) {
-            $canonical = esc_url_raw( wp_unslash( $_POST['wpsm_canonical'] ) );
-            update_post_meta( $post_id, '_wpsm_canonical', $canonical );
+            update_post_meta( $post_id, '_wpsm_canonical', esc_url_raw( wp_unslash( $_POST['wpsm_canonical'] ) ) );
         }
 
         // OG Title
         if ( isset( $_POST['wpsm_og_title'] ) ) {
-            $og_title = sanitize_text_field( wp_unslash( $_POST['wpsm_og_title'] ) );
-            update_post_meta( $post_id, '_wpsm_og_title', $og_title );
+            update_post_meta( $post_id, '_wpsm_og_title', sanitize_text_field( wp_unslash( $_POST['wpsm_og_title'] ) ) );
         }
 
         // OG Description
         if ( isset( $_POST['wpsm_og_description'] ) ) {
-            $og_desc = sanitize_textarea_field( wp_unslash( $_POST['wpsm_og_description'] ) );
-            update_post_meta( $post_id, '_wpsm_og_description', $og_desc );
+            update_post_meta( $post_id, '_wpsm_og_description', sanitize_textarea_field( wp_unslash( $_POST['wpsm_og_description'] ) ) );
         }
 
         // OG Image
         if ( isset( $_POST['wpsm_og_image'] ) ) {
-            $og_image = esc_url_raw( wp_unslash( $_POST['wpsm_og_image'] ) );
-            update_post_meta( $post_id, '_wpsm_og_image', $og_image );
+            update_post_meta( $post_id, '_wpsm_og_image', esc_url_raw( wp_unslash( $_POST['wpsm_og_image'] ) ) );
         }
 
         // Twitter Title
         if ( isset( $_POST['wpsm_twitter_title'] ) ) {
-            $tw_title = sanitize_text_field( wp_unslash( $_POST['wpsm_twitter_title'] ) );
-            update_post_meta( $post_id, '_wpsm_twitter_title', $tw_title );
+            update_post_meta( $post_id, '_wpsm_twitter_title', sanitize_text_field( wp_unslash( $_POST['wpsm_twitter_title'] ) ) );
         }
 
         // Twitter Description
         if ( isset( $_POST['wpsm_twitter_description'] ) ) {
-            $tw_desc = sanitize_textarea_field( wp_unslash( $_POST['wpsm_twitter_description'] ) );
-            update_post_meta( $post_id, '_wpsm_twitter_description', $tw_desc );
+            update_post_meta( $post_id, '_wpsm_twitter_description', sanitize_textarea_field( wp_unslash( $_POST['wpsm_twitter_description'] ) ) );
         }
 
         // Twitter Image
         if ( isset( $_POST['wpsm_twitter_image'] ) ) {
-            $tw_image = esc_url_raw( wp_unslash( $_POST['wpsm_twitter_image'] ) );
-            update_post_meta( $post_id, '_wpsm_twitter_image', $tw_image );
+            update_post_meta( $post_id, '_wpsm_twitter_image', esc_url_raw( wp_unslash( $_POST['wpsm_twitter_image'] ) ) );
         }
 
         // Schema Type
@@ -465,7 +356,6 @@ class Class_Metabox {
         // Schema Data (JSON)
         if ( isset( $_POST['wpsm_schema_data'] ) ) {
             $schema_data = wp_unslash( $_POST['wpsm_schema_data'] );
-            // JSON olarak sanitize et
             if ( is_array( $schema_data ) ) {
                 $sanitized = $this->sanitize_schema_data( $schema_data );
                 update_post_meta( $post_id, '_wpsm_schema_data', wp_json_encode( $sanitized ) );
@@ -476,7 +366,7 @@ class Class_Metabox {
         $robots = array();
         if ( isset( $_POST['wpsm_robots'] ) && is_array( $_POST['wpsm_robots'] ) ) {
             $allowed_robots = array( 'noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex' );
-            foreach ( $_POST['wpsm_robots'] as $robot ) {
+            foreach ( wp_unslash( $_POST['wpsm_robots'] ) as $robot ) {
                 $robot = sanitize_text_field( $robot );
                 if ( in_array( $robot, $allowed_robots, true ) ) {
                     $robots[] = $robot;
@@ -487,23 +377,53 @@ class Class_Metabox {
 
         // Breadcrumb Title
         if ( isset( $_POST['wpsm_breadcrumb_title'] ) ) {
-            $breadcrumb_title = sanitize_text_field( wp_unslash( $_POST['wpsm_breadcrumb_title'] ) );
-            update_post_meta( $post_id, '_wpsm_breadcrumb_title', $breadcrumb_title );
+            update_post_meta( $post_id, '_wpsm_breadcrumb_title', sanitize_text_field( wp_unslash( $_POST['wpsm_breadcrumb_title'] ) ) );
         }
 
         /**
          * Meta kaydetme sonrası action
          *
-         * @param int   $post_id Post ID
-         * @param array $_POST   POST verisi
+         * @param int $post_id Post ID
          */
-        do_action( 'wpsm_after_save_meta', $post_id, $_POST );
+        do_action( 'wpsm_after_save_meta', $post_id );
+    }
+
+    /**
+     * AJAX: Schema tipine göre alanları yükle
+     */
+    public function ajax_load_schema_fields() {
+        // Nonce kontrolü
+        check_ajax_referer( 'wpsm_metabox_save', 'nonce' );
+
+        // Yetki kontrolü
+        if ( ! current_user_can( 'edit_posts' ) ) {
+            wp_send_json_error( array(
+                'message' => __( 'Yetkiniz yok.', 'wp-seo-master' ),
+            ));
+        }
+
+        $schema_type = isset( $_POST['schema_type'] ) ? sanitize_text_field( wp_unslash( $_POST['schema_type'] ) ) : '';
+
+        $allowed_types = array( 'article', 'faq', 'howto', 'product', 'localbusiness' );
+        if ( ! in_array( $schema_type, $allowed_types, true ) ) {
+            wp_send_json_error( array(
+                'message' => __( 'Geçersiz schema türü.', 'wp-seo-master' ),
+            ));
+        }
+
+        // HTML çıktısını buffer'la al
+        ob_start();
+        $this->render_schema_fields( $schema_type, array() );
+        $html = ob_get_clean();
+
+        wp_send_json_success( array(
+            'html' => $html,
+            'type' => $schema_type,
+        ));
     }
 
     /**
      * Schema tipine göre dinamik alanları render et
-     *
-     * AJAX ile de çağrılabilir (wp_ajax_wpsm_load_schema_fields).
      *
      * @param string $schema_type Schema tipi
      * @param array  $schema_data Mevcut schema verisi
@@ -533,14 +453,12 @@ class Class_Metabox {
 
     /**
      * Article schema alanları
-     *
-     * @param array $data Mevcut veri
      */
     private function render_article_schema_fields( $data ) {
-        $author    = isset( $data['author'] ) ? $data['author'] : '';
-        $date_pub  = isset( $data['datePublished'] ) ? $data['datePublished'] : '';
-        $date_mod  = isset( $data['dateModified'] ) ? $data['dateModified'] : '';
-        $section   = isset( $data['articleSection'] ) ? $data['articleSection'] : '';
+        $author   = isset( $data['author'] ) ? $data['author'] : '';
+        $date_pub = isset( $data['datePublished'] ) ? $data['datePublished'] : '';
+        $date_mod = isset( $data['dateModified'] ) ? $data['dateModified'] : '';
+        $section  = isset( $data['articleSection'] ) ? $data['articleSection'] : '';
         ?>
         <div class="wpsm-schema-field">
             <label><?php esc_html_e( 'Yazar', 'wp-seo-master' ); ?></label>
@@ -563,8 +481,6 @@ class Class_Metabox {
 
     /**
      * FAQ schema alanları
-     *
-     * @param array $data Mevcut veri
      */
     private function render_faq_schema_fields( $data ) {
         $questions = isset( $data['questions'] ) ? $data['questions'] : array( array( 'question' => '', 'answer' => '' ) );
@@ -592,8 +508,6 @@ class Class_Metabox {
 
     /**
      * HowTo schema alanları
-     *
-     * @param array $data Mevcut veri
      */
     private function render_howto_schema_fields( $data ) {
         $description = isset( $data['description'] ) ? $data['description'] : '';
@@ -631,8 +545,6 @@ class Class_Metabox {
 
     /**
      * Product schema alanları
-     *
-     * @param array $data Mevcut veri
      */
     private function render_product_schema_fields( $data ) {
         $brand    = isset( $data['brand'] ) ? $data['brand'] : '';
@@ -675,8 +587,6 @@ class Class_Metabox {
 
     /**
      * LocalBusiness schema alanları
-     *
-     * @param array $data Mevcut veri
      */
     private function render_localbusiness_schema_fields( $data ) {
         $name    = isset( $data['name'] ) ? $data['name'] : '';
@@ -716,49 +626,10 @@ class Class_Metabox {
     }
 
     /**
-     * AJAX: Schema tipine göre alanları yükle
-     *
-     * Schema tipi değiştiğinde JavaScript tarafından çağrılır.
-     * HTML çıktısı JSON olarak döndürülür.
-     */
-    public function ajax_load_schema_fields() {
-        // Nonce kontrolü
-        check_ajax_referer( 'wpsm_metabox_save', 'nonce' );
-
-        // Yetki kontrolü
-        if ( ! current_user_can( 'edit_posts' ) ) {
-            wp_send_json_error( array(
-                'message' => __( 'Yetkiniz yok.', 'wp-seo-master' ),
-            ));
-        }
-
-        // Schema tipini al
-        $schema_type = isset( $_POST['schema_type'] ) ? sanitize_text_field( wp_unslash( $_POST['schema_type'] ) ) : '';
-
-        // Geçerli tipleri kontrol et
-        $allowed_types = array( 'article', 'faq', 'howto', 'product', 'localbusiness' );
-        if ( ! in_array( $schema_type, $allowed_types, true ) ) {
-            wp_send_json_error( array(
-                'message' => __( 'Geçersiz schema türü.', 'wp-seo-master' ),
-            ));
-        }
-
-        // HTML çıktısını buffer'la al
-        ob_start();
-        $this->render_schema_fields( $schema_type, array() );
-        $html = ob_get_clean();
-
-        wp_send_json_success( array(
-            'html' => $html,
-            'type' => $schema_type,
-        ));
-    }
-
-    /**
      * Schema verisini sanitize et
      *
      * @param array $data Schema verisi
-     * @return array Sanitize edilmiş veri
+     * @return array
      */
     private function sanitize_schema_data( $data ) {
         $sanitized = array();

@@ -330,7 +330,10 @@ $schema_data_json = ! empty( $schema_data ) ? wp_json_encode( $schema_data ) : '
                     <div class="wpsm-schema-dynamic-fields" data-schema-type="<?php echo esc_attr( $schema_type ); ?>">
                         <?php
                         // Mevcut schema tipine göre alanları göster
-                        $this->render_schema_fields( $schema_type, $schema_data );
+                        // $wpsm_metabox değişkeni Class_Metabox instance'ıdır (render_metabox metodundan gelir)
+                        if ( isset( $wpsm_metabox ) && is_object( $wpsm_metabox ) ) {
+                            $wpsm_metabox->render_schema_fields( $schema_type, $schema_data );
+                        }
                         ?>
                     </div>
                 <?php else : ?>

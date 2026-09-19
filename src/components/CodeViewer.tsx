@@ -2,16 +2,17 @@ import { useState } from 'react'
 
 const files = [
   {
-    id: 'menu',
-    name: 'class-admin-menu.php',
-    path: 'includes/Admin/class-admin-menu.php',
-    description: 'Admin menü yapısı - Dashboard, Genel, Şema, Sosyal, Sitemap, Analiz',
+    id: 'metabox',
+    name: 'class-metabox.php',
+    path: 'includes/Admin/class-metabox.php',
+    description: 'SEO Metabox sınıfı - 4 sekme, AJAX schema, REST API, Gutenberg uyumlu',
     language: 'php',
     code: `<?php
 /**
- * Admin Menü Sınıfı
+ * SEO Metabox Sınıfı
  *
- * WordPress admin panelinde eklenti menüsünü oluşturur.
+ * Post/Page/CPT edit ekranlarında SEO meta alanlarını gösteren metabox.
+ * Tab yapısı: İçerik, Sosyal, Şema, Gelişmiş
  *
  * @package WPSM\\Admin
  * @since 1.0.0
@@ -21,732 +22,1183 @@ namespace WPSM\\Admin;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-class Class_Admin_Menu {
-
-    private $options;
-    const MENU_SLUG  = 'wp-seo-master';
-    const CAPABILITY = 'manage_options';
-
-    public function __construct( $options ) {
-        $this->options = $options;
-    }
-
-    /**
-     * Admin menüsünü kaydet
-     */
-    public function register_menu() {
-        // Ana menü (Dashboard)
-        add_menu_page(
-            __( 'WP SEO Master', 'wp-seo-master' ),
-            __( 'WP SEO Master', 'wp-seo-master' ),
-            self::CAPABILITY,
-            self::MENU_SLUG,
-            array( $this, 'render_dashboard' ),
-            'dashicons-chart-line',
-            80
-        );
-
-        // Alt menüler
-        add_submenu_page( self::MENU_SLUG,
-            __( 'Dashboard', 'wp-seo-master' ),
-            __( 'Dashboard', 'wp-seo-master' ),
-            self::CAPABILITY, self::MENU_SLUG,
-            array( $this, 'render_dashboard' )
-        );
-
-        add_submenu_page( self::MENU_SLUG,
-            __( 'Genel Ayarlar', 'wp-seo-master' ),
-            __( 'Genel Ayarlar', 'wp-seo-master' ),
-            self::CAPABILITY, self::MENU_SLUG . '-settings',
-            array( $this, 'render_settings' )
-        );
-
-        add_submenu_page( self::MENU_SLUG,
-            __( 'Şema Ayarları', 'wp-seo-master' ),
-            __( 'Şema', 'wp-seo-master' ),
-            self::CAPABILITY, self::MENU_SLUG . '-schema',
-            array( $this, 'render_schema' )
-        );
-
-        add_submenu_page( self::MENU_SLUG,
-            __( 'Sosyal Medya', 'wp-seo-master' ),
-            __( 'Sosyal Medya', 'wp-seo-master' ),
-            self::CAPABILITY, self::MENU_SLUG . '-social',
-            array( $this, 'render_social' )
-        );
-
-        add_submenu_page( self::MENU_SLUG,
-            __( 'Sitemap', 'wp-seo-master' ),
-            __( 'Sitemap', 'wp-seo-master' ),
-            self::CAPABILITY, self::MENU_SLUG . '-sitemap',
-            array( $this, 'render_sitemap' )
-        );
-
-        add_submenu_page( self::MENU_SLUG,
-            __( 'İçerik Analizi', 'wp-seo-master' ),
-            __( 'İçerik Analizi', 'wp-seo-master' ),
-            self::CAPABILITY, self::MENU_SLUG . '-analyzer',
-            array( $this, 'render_analyzer' )
-        );
-    }
-
-    /**
-     * Admin asset'lerini yükle
-     */
-    public function enqueue_admin_assets( $hook ) {
-        if ( strpos( $hook, self::MENU_SLUG ) === false ) return;
-
-        wp_enqueue_media(); // Media uploader için
-
-        wp_enqueue_style( 'wpsm-admin',
-            WPSM_URL . 'assets/css/admin.css',
-            array(), WPSM_VERSION
-        );
-
-        wp_enqueue_script( 'wpsm-admin',
-            WPSM_URL . 'assets/js/admin.js',
-            array( 'jquery', 'wp-util' ),
-            WPSM_VERSION, true
-        );
-
-        wp_localize_script( 'wpsm-admin', 'wpsmAdmin', array(
-            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-            'nonce'   => wp_create_nonce( 'wpsm_admin_nonce' ),
-            'i18n'    => array(
-                'selectImage' => __( 'Görsel Seç', 'wp-seo-master' ),
-                'useImage'    => __( 'Kullan', 'wp-seo-master' ),
-                'saving'      => __( 'Kaydediliyor...', 'wp-seo-master' ),
-                'saved'       => __( 'Kaydedildi!', 'wp-seo-master' ),
-            ),
-        ));
-    }
-
-    /**
-     * Dashboard sayfasını render et
-     */
-    public function render_dashboard() {
-        if ( ! current_user_can( self::CAPABILITY ) ) {
-            wp_die( esc_html__( 'Yetkiniz yok.', 'wp-seo-master' ) );
-        }
-        include WPSM_INCLUDES_PATH . 'Admin/views/dashboard.php';
-    }
-
-    /**
-     * Genel ayarlar sayfasını render et
-     */
-    public function render_settings() {
-        if ( ! current_user_can( self::CAPABILITY ) ) {
-            wp_die( esc_html__( 'Yetkiniz yok.', 'wp-seo-master' ) );
-        }
-
-        $tab = isset( $_GET['tab'] )
-            ? sanitize_text_field( wp_unslash( $_GET['tab'] ) )
-            : 'general';
-
-        $view_file = WPSM_INCLUDES_PATH . 'Admin/views/settings-' . $tab . '.php';
-
-        if ( ! file_exists( $view_file ) ) {
-            $view_file = WPSM_INCLUDES_PATH . 'Admin/views/settings-general.php';
-        }
-
-        $settings = new Class_Settings( $this->options );
-        include $view_file;
-    }
-
-    // Diğer render metodları...
-    public function render_schema() { /* ... */ }
-    public function render_social() { /* ... */ }
-    public function render_sitemap() { /* ... */ }
-    public function render_analyzer() { /* ... */ }
-}`,
-  },
-  {
-    id: 'settings',
-    name: 'class-settings.php',
-    path: 'includes/Admin/class-settings.php',
-    description: 'Settings API - register_setting, sections, fields, sanitize',
-    language: 'php',
-    code: `<?php
-/**
- * Ayarlar Sınıfı
- *
- * WordPress Settings API kullanarak eklenti ayarlarını yönetir.
- * Tab yapısı: general, schema, social, sitemap
- *
- * @package WPSM\\Admin
- * @since 1.0.0
- */
-
-namespace WPSM\\Admin;
-
-if ( ! defined( 'ABSPATH' ) ) { exit; }
-
-class Class_Settings {
+class Class_Metabox {
 
     private $options;
 
-    const SETTINGS_GROUP = 'wpsm_settings_group';
-    const SETTINGS_NAME  = 'wpsm_settings';
-    const NONCE_ACTION   = 'wpsm_save_settings';
-    const NONCE_NAME     = 'wpsm_nonce';
+    const METABOX_ID   = 'wpsm-seo-metabox';
+    const NONCE_ACTION = 'wpsm_metabox_save';
+    const NONCE_NAME   = 'wpsm_metabox_nonce';
+
+    const META_KEYS = array(
+        '_wpsm_title', '_wpsm_description', '_wpsm_focus_keyword',
+        '_wpsm_canonical', '_wpsm_og_title', '_wpsm_og_description',
+        '_wpsm_og_image', '_wpsm_twitter_title', '_wpsm_twitter_description',
+        '_wpsm_twitter_image', '_wpsm_schema_type', '_wpsm_schema_data',
+        '_wpsm_robots', '_wpsm_breadcrumb_title',
+    );
 
     public function __construct( $options ) {
         $this->options = $options;
+        add_action( 'wp_ajax_wpsm_load_schema_fields', array( $this, 'ajax_load_schema_fields' ) );
     }
 
     /**
-     * Ayarları kaydet (admin_init hook)
+     * Metabox'ları kaydet
+     * context: normal, priority: high
      */
-    public function register_settings() {
-        register_setting(
-            self::SETTINGS_GROUP,
-            self::SETTINGS_NAME,
-            array( $this, 'sanitize_settings' )
-        );
+    public function add_meta_boxes() {
+        $post_types = $this->get_supported_post_types();
 
-        $this->register_general_settings();
-        $this->register_schema_settings();
-        $this->register_social_settings();
-        $this->register_sitemap_settings();
-    }
-
-    /**
-     * Genel ayarları register et
-     */
-    private function register_general_settings() {
-        add_settings_section(
-            'wpsm_general_section',
-            __( 'Genel Ayarlar', 'wp-seo-master' ),
-            array( $this, 'render_general_section_desc' ),
-            'wpsm_settings_general'
-        );
-
-        add_settings_field(
-            'wpsm_title_separator',
-            __( 'Başlık Ayırıcı', 'wp-seo-master' ),
-            array( $this, 'render_title_separator_field' ),
-            'wpsm_settings_general',
-            'wpsm_general_section'
-        );
-
-        add_settings_field(
-            'wpsm_home_title',
-            __( 'Ana Sayfa Başlığı', 'wp-seo-master' ),
-            array( $this, 'render_home_title_field' ),
-            'wpsm_settings_general',
-            'wpsm_general_section'
-        );
-
-        add_settings_field(
-            'wpsm_google_verification',
-            __( 'Google Verification', 'wp-seo-master' ),
-            array( $this, 'render_google_verification_field' ),
-            'wpsm_settings_general',
-            'wpsm_general_section'
-        );
-    }
-
-    /**
-     * Sosyal medya ayarlarını register et
-     */
-    private function register_social_settings() {
-        add_settings_section(
-            'wpsm_social_section',
-            __( 'Sosyal Medya', 'wp-seo-master' ),
-            array( $this, 'render_social_section_desc' ),
-            'wpsm_settings_social'
-        );
-
-        add_settings_field(
-            'wpsm_facebook_app_id',
-            __( 'Facebook App ID', 'wp-seo-master' ),
-            array( $this, 'render_facebook_app_id_field' ),
-            'wpsm_settings_social',
-            'wpsm_social_section'
-        );
-
-        add_settings_field(
-            'wpsm_twitter_site',
-            __( 'Twitter Kullanıcı Adı', 'wp-seo-master' ),
-            array( $this, 'render_twitter_site_field' ),
-            'wpsm_settings_social',
-            'wpsm_social_section'
-        );
-
-        add_settings_field(
-            'wpsm_default_og_image',
-            __( 'Varsayılan OG Görseli', 'wp-seo-master' ),
-            array( $this, 'render_default_og_image_field' ),
-            'wpsm_settings_social',
-            'wpsm_social_section'
-        );
-
-        add_settings_field(
-            'wpsm_twitter_card_type',
-            __( 'Twitter Card Türü', 'wp-seo-master' ),
-            array( $this, 'render_twitter_card_type_field' ),
-            'wpsm_settings_social',
-            'wpsm_social_section'
-        );
-    }
-
-    /**
-     * Ayarları sanitize et
-     *
-     * @param array $input Ham giriş
-     * @return array Sanitize edilmiş veri
-     */
-    public function sanitize_settings( $input ) {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            return $this->options->all();
-        }
-
-        $sanitized = array();
-
-        // Title Separator
-        if ( isset( $input['title_separator'] ) ) {
-            $allowed = array( '|', '-', '–', '»', '/', '·', '•' );
-            $sep = sanitize_text_field( $input['title_separator'] );
-            $sanitized['title_separator'] = in_array( $sep, $allowed, true ) ? $sep : '|';
-        }
-
-        // Twitter Site (@ işareti kaldır)
-        if ( isset( $input['twitter_site'] ) ) {
-            $sanitized['twitter_site'] = ltrim(
-                sanitize_text_field( $input['twitter_site'] ), '@'
+        foreach ( $post_types as $post_type ) {
+            add_meta_box(
+                self::METABOX_ID,
+                __( 'WP SEO Master', 'wp-seo-master' ),
+                array( $this, 'render_metabox' ),
+                $post_type,
+                'normal',
+                'high'
             );
         }
 
-        // OG Image URL
-        if ( isset( $input['default_og_image'] ) ) {
-            $sanitized['default_og_image'] = esc_url_raw( $input['default_og_image'] );
-        }
+        // Gutenberg uyumluluğu - REST API meta kaydı
+        $this->register_post_meta();
+    }
 
-        // Twitter Card Type
-        if ( isset( $input['twitter_card_type'] ) ) {
-            $allowed = array( 'summary', 'summary_large_image' );
-            $type = sanitize_text_field( $input['twitter_card_type'] );
-            $sanitized['twitter_card_type'] = in_array( $type, $allowed, true )
-                ? $type : 'summary_large_image';
-        }
+    /**
+     * Post meta alanlarını REST API'ye kaydet
+     * show_in_rest=true, single=true, auth_callback ile yetki kontrolü
+     */
+    private function register_post_meta() {
+        $post_types = $this->get_supported_post_types();
 
-        // Boolean alanlar
-        $sanitized['enable_schema']   = isset( $input['enable_schema'] );
-        $sanitized['enable_sitemap']  = isset( $input['enable_sitemap'] );
-        $sanitized['enable_opengraph'] = isset( $input['enable_opengraph'] );
-        $sanitized['enable_twitter']  = isset( $input['enable_twitter'] );
-
-        // Text alanları
-        $text_fields = array(
-            'home_title', 'home_description', 'google_verification',
-            'bing_verification', 'facebook_app_id', 'twitter_creator',
+        $string_fields = array(
+            '_wpsm_title', '_wpsm_description', '_wpsm_focus_keyword',
+            '_wpsm_canonical', '_wpsm_og_title', '_wpsm_og_description',
+            '_wpsm_og_image', '_wpsm_twitter_title', '_wpsm_twitter_description',
+            '_wpsm_twitter_image', '_wpsm_schema_type', '_wpsm_breadcrumb_title',
         );
-        foreach ( $text_fields as $field ) {
-            if ( isset( $input[ $field ] ) ) {
-                $sanitized[ $field ] = sanitize_text_field( $input[ $field ] );
+
+        foreach ( $post_types as $post_type ) {
+            foreach ( $string_fields as $key ) {
+                register_post_meta( $post_type, $key, array(
+                    'show_in_rest'      => true,
+                    'single'            => true,
+                    'type'              => 'string',
+                    'auth_callback'     => array( $this, 'meta_auth_callback' ),
+                    'sanitize_callback' => 'sanitize_text_field',
+                ));
+            }
+
+            // Schema Data (object)
+            register_post_meta( $post_type, '_wpsm_schema_data', array(
+                'show_in_rest'  => array(
+                    'schema' => array(
+                        'type'       => 'object',
+                        'properties' => new \\stdClass(),
+                    ),
+                ),
+                'single'        => true,
+                'type'          => 'object',
+                'auth_callback' => array( $this, 'meta_auth_callback' ),
+            ));
+
+            // Robots (array)
+            register_post_meta( $post_type, '_wpsm_robots', array(
+                'show_in_rest'  => array(
+                    'schema' => array(
+                        'type'  => 'array',
+                        'items' => array( 'type' => 'string' ),
+                    ),
+                ),
+                'single'        => true,
+                'type'          => 'array',
+                'auth_callback' => array( $this, 'meta_auth_callback' ),
+            ));
+        }
+    }
+
+    /**
+     * Meta yetki kontrolü
+     */
+    public function meta_auth_callback( $allowed, $meta_key, $post_id ) {
+        return current_user_can( 'edit_post', $post_id );
+    }
+
+    /**
+     * Metabox içeriğini render et
+     */
+    public function render_metabox( $post ) {
+        wp_nonce_field( self::NONCE_ACTION, self::NONCE_NAME );
+
+        $post_id = $post->ID;
+        $meta    = $this->get_all_meta( $post_id );
+
+        // Template'e instance'ı gönder ($this yerine $wpsm_metabox)
+        $wpsm_metabox = $this;
+
+        include WPSM_INCLUDES_PATH . 'Admin/views/metabox.php';
+    }
+
+    /**
+     * save_post hook'u ile kaydetme
+     */
+    public function save_meta( $post_id, $post ) {
+        // 1. Nonce kontrolü
+        if ( ! isset( $_POST[ self::NONCE_NAME ] ) ) return;
+        if ( ! wp_verify_nonce( $_POST[ self::NONCE_NAME ], self::NONCE_ACTION ) ) return;
+
+        // 2. Autosave kontrolü
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
+
+        // 3. Revision kontrolü
+        if ( wp_is_post_revision( $post_id ) ) return;
+
+        // 4. Yetki kontrolü
+        if ( ! current_user_can( 'edit_post', $post_id ) ) return;
+
+        // Meta alanlarını kaydet (sanitize ile)
+        if ( isset( $_POST['wpsm_title'] ) ) {
+            update_post_meta( $post_id, '_wpsm_title',
+                sanitize_text_field( wp_unslash( $_POST['wpsm_title'] ) )
+            );
+        }
+
+        if ( isset( $_POST['wpsm_description'] ) ) {
+            update_post_meta( $post_id, '_wpsm_description',
+                sanitize_textarea_field( wp_unslash( $_POST['wpsm_description'] ) )
+            );
+        }
+
+        // Schema Type
+        if ( isset( $_POST['wpsm_schema_type'] ) ) {
+            $allowed = array( 'none', 'article', 'faq', 'howto', 'product', 'localbusiness' );
+            $type = sanitize_text_field( wp_unslash( $_POST['wpsm_schema_type'] ) );
+            if ( in_array( $type, $allowed, true ) ) {
+                update_post_meta( $post_id, '_wpsm_schema_type', $type );
             }
         }
 
-        return apply_filters( 'wpsm_sanitize_settings', $sanitized, $input );
+        // Schema Data (JSON)
+        if ( isset( $_POST['wpsm_schema_data'] ) && is_array( $_POST['wpsm_schema_data'] ) ) {
+            $sanitized = $this->sanitize_schema_data( wp_unslash( $_POST['wpsm_schema_data'] ) );
+            update_post_meta( $post_id, '_wpsm_schema_data', wp_json_encode( $sanitized ) );
+        }
+
+        // Robots (checkbox array)
+        $robots = array();
+        $allowed_robots = array( 'noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex' );
+        if ( isset( $_POST['wpsm_robots'] ) && is_array( $_POST['wpsm_robots'] ) ) {
+            foreach ( wp_unslash( $_POST['wpsm_robots'] ) as $robot ) {
+                $robot = sanitize_text_field( $robot );
+                if ( in_array( $robot, $allowed_robots, true ) ) {
+                    $robots[] = $robot;
+                }
+            }
+        }
+        update_post_meta( $post_id, '_wpsm_robots', $robots );
     }
 
-    // Field render metodları...
-    public function render_title_separator_field() { /* select ile |, -, –, », / */ }
-    public function render_home_title_field() { /* input + char counter */ }
-    public function render_google_verification_field() { /* input */ }
-    public function render_facebook_app_id_field() { /* input */ }
-    public function render_twitter_site_field() { /* input with @ prefix */ }
-    public function render_default_og_image_field() { /* media uploader */ }
-    public function render_twitter_card_type_field() { /* select */ }
+    /**
+     * AJAX: Schema tipine göre alanları yükle
+     */
+    public function ajax_load_schema_fields() {
+        check_ajax_referer( 'wpsm_metabox_save', 'nonce' );
+
+        if ( ! current_user_can( 'edit_posts' ) ) {
+            wp_send_json_error( array( 'message' => __( 'Yetkiniz yok.', 'wp-seo-master' ) ) );
+        }
+
+        $schema_type = isset( $_POST['schema_type'] )
+            ? sanitize_text_field( wp_unslash( $_POST['schema_type'] ) )
+            : '';
+
+        $allowed = array( 'article', 'faq', 'howto', 'product', 'localbusiness' );
+        if ( ! in_array( $schema_type, $allowed, true ) ) {
+            wp_send_json_error( array( 'message' => __( 'Geçersiz tür.', 'wp-seo-master' ) ) );
+        }
+
+        ob_start();
+        $this->render_schema_fields( $schema_type, array() );
+        $html = ob_get_clean();
+
+        wp_send_json_success( array( 'html' => $html, 'type' => $schema_type ) );
+    }
+
+    /**
+     * Schema alanlarını render et
+     */
+    public function render_schema_fields( $schema_type, $schema_data = array() ) {
+        switch ( $schema_type ) {
+            case 'article':
+                $this->render_article_schema_fields( $schema_data );
+                break;
+            case 'faq':
+                $this->render_faq_schema_fields( $schema_data );
+                break;
+            case 'howto':
+                $this->render_howto_schema_fields( $schema_data );
+                break;
+            case 'product':
+                $this->render_product_schema_fields( $schema_data );
+                break;
+            case 'localbusiness':
+                $this->render_localbusiness_schema_fields( $schema_data );
+                break;
+        }
+    }
+
+    // Schema field render metodları...
+    private function render_article_schema_fields( $data ) { /* ... */ }
+    private function render_faq_schema_fields( $data ) { /* ... */ }
+    private function render_howto_schema_fields( $data ) { /* ... */ }
+    private function render_product_schema_fields( $data ) { /* ... */ }
+    private function render_localbusiness_schema_fields( $data ) { /* ... */ }
+
+    private function sanitize_schema_data( $data ) {
+        $sanitized = array();
+        foreach ( $data as $key => $value ) {
+            $key = sanitize_text_field( $key );
+            if ( is_array( $value ) ) {
+                $sanitized[ $key ] = $this->sanitize_schema_data( $value );
+            } elseif ( is_string( $value ) ) {
+                $sanitized[ $key ] = sanitize_text_field( $value );
+            }
+        }
+        return $sanitized;
+    }
+
+    private function get_supported_post_types() {
+        $post_types = get_post_types( array( 'public' => true ) );
+        unset( $post_types['attachment'] );
+        return apply_filters( 'wpsm_supported_post_types', $post_types );
+    }
+
+    private function get_all_meta( $post_id ) {
+        $meta = array();
+        foreach ( self::META_KEYS as $key ) {
+            $value = get_post_meta( $post_id, $key, true );
+            if ( '_wpsm_schema_data' === $key && ! empty( $value ) ) {
+                $decoded = json_decode( $value, true );
+                $value = is_array( $decoded ) ? $decoded : array();
+            }
+            if ( '_wpsm_robots' === $key && ! empty( $value ) ) {
+                $value = is_array( $value ) ? $value : array( $value );
+            }
+            $meta[ $key ] = $value;
+        }
+        return $meta;
+    }
 }`,
   },
   {
-    id: 'general-view',
-    name: 'settings-general.php',
-    path: 'includes/Admin/views/settings-general.php',
-    description: 'Genel ayarlar view - Title separator, verification, robots.txt',
+    id: 'view',
+    name: 'views/metabox.php',
+    path: 'includes/Admin/views/metabox.php',
+    description: 'Metabox template - 4 sekme, SERP preview, media uploader, schema repeater',
     language: 'php',
     code: `<?php
 /**
- * Genel Ayarlar Sayfası View
+ * SEO Metabox Template
  *
- * @var \\WPSM\\Class_Options $options
+ * @var int         $post_id      Post ID
+ * @var array       $meta         Meta değerleri
+ * @var object      $post         WP_Post objesi
+ * @var Class_Metabox $wpsm_metabox Metabox instance
  */
-if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-// Mevcut değerler
-$title_separator     = $options->get( 'title_separator', '|' );
-$home_title          = $options->get( 'home_title', '' );
-$home_description    = $options->get( 'home_description', '' );
-$google_verification = $options->get( 'google_verification', '' );
-$bing_verification   = $options->get( 'bing_verification', '' );
-$robots_txt          = $options->get( 'robots_txt', '' );
+if ( ! defined( 'ABSPATH' ) ) exit;
 
-// Kaydetme işlemi
-$message = '';
-if ( isset( $_POST['wpsm_save_general'] ) ) {
-    // Nonce kontrolü
-    if ( ! isset( $_POST['wpsm_nonce'] ) ||
-         ! wp_verify_nonce( $_POST['wpsm_nonce'], 'wpsm_save_settings' ) ) {
-        $message = '<div class="notice notice-error"><p>' .
-            esc_html__( 'Güvenlik doğrulaması başarısız.', 'wp-seo-master' ) .
-            '</p></div>';
-    } elseif ( ! current_user_can( 'manage_options' ) ) {
-        $message = '<div class="notice notice-error"><p>' .
-            esc_html__( 'Yetkiniz yok.', 'wp-seo-master' ) .
-            '</p></div>';
-    } else {
-        $data = array();
-        if ( isset( $_POST['wpsm_settings'] ) ) {
-            foreach ( $_POST['wpsm_settings'] as $key => $value ) {
-                $key = sanitize_text_field( $key );
-                $data[ $key ] = sanitize_text_field( $value );
-            }
-        }
-        $options->update( $data );
-        $message = '<div class="notice notice-success is-dismissible"><p>' .
-            esc_html__( 'Ayarlar kaydedildi.', 'wp-seo-master' ) .
-            '</p></div>';
-    }
-}
-
-$default_robots = "User-agent: *\\nAllow: /\\n\\nSitemap: " . home_url( '/sitemap.xml' );
+// Meta değerlerini değişkenlere ata
+$title         = isset( $meta['_wpsm_title'] ) ? $meta['_wpsm_title'] : '';
+$description   = isset( $meta['_wpsm_description'] ) ? $meta['_wpsm_description'] : '';
+$focus_keyword = isset( $meta['_wpsm_focus_keyword'] ) ? $meta['_wpsm_focus_keyword'] : '';
+$canonical     = isset( $meta['_wpsm_canonical'] ) ? $meta['_wpsm_canonical'] : '';
+$og_title      = isset( $meta['_wpsm_og_title'] ) ? $meta['_wpsm_og_title'] : '';
+$og_description = isset( $meta['_wpsm_og_description'] ) ? $meta['_wpsm_og_description'] : '';
+$og_image      = isset( $meta['_wpsm_og_image'] ) ? $meta['_wpsm_og_image'] : '';
+$twitter_title = isset( $meta['_wpsm_twitter_title'] ) ? $meta['_wpsm_twitter_title'] : '';
+$twitter_description = isset( $meta['_wpsm_twitter_description'] ) ? $meta['_wpsm_twitter_description'] : '';
+$twitter_image = isset( $meta['_wpsm_twitter_image'] ) ? $meta['_wpsm_twitter_image'] : '';
+$schema_type   = isset( $meta['_wpsm_schema_type'] ) ? $meta['_wpsm_schema_type'] : 'none';
+$schema_data   = isset( $meta['_wpsm_schema_data'] ) ? $meta['_wpsm_schema_data'] : array();
+$robots        = isset( $meta['_wpsm_robots'] ) ? $meta['_wpsm_robots'] : array();
+$breadcrumb_title = isset( $meta['_wpsm_breadcrumb_title'] ) ? $meta['_wpsm_breadcrumb_title'] : '';
+$schema_data_json = ! empty( $schema_data ) ? wp_json_encode( $schema_data ) : '{}';
 ?>
 
-<div class="wrap">
-    <h1>
-        <span class="dashicons dashicons-admin-settings"></span>
-        <?php esc_html_e( 'Genel Ayarlar', 'wp-seo-master' ); ?>
-    </h1>
-
-    <?php echo $message; // phpcs:ignore ?>
-
+<div class="wpsm-metabox-wrapper">
     <!-- Tab Navigation -->
-    <nav class="nav-tab-wrapper">
-        <a href="?page=wp-seo-master-settings&tab=general" class="nav-tab nav-tab-active">
-            <?php esc_html_e( 'Genel', 'wp-seo-master' ); ?>
-        </a>
-        <a href="?page=wp-seo-master-settings&tab=schema" class="nav-tab">
+    <nav class="wpsm-tabs-nav">
+        <button type="button" class="wpsm-tab-btn active" data-tab="content">
+            <span class="dashicons dashicons-edit"></span>
+            <?php esc_html_e( 'İçerik', 'wp-seo-master' ); ?>
+        </button>
+        <button type="button" class="wpsm-tab-btn" data-tab="social">
+            <span class="dashicons dashicons-share"></span>
+            <?php esc_html_e( 'Sosyal', 'wp-seo-master' ); ?>
+        </button>
+        <button type="button" class="wpsm-tab-btn" data-tab="schema">
+            <span class="dashicons dashicons-editor-code"></span>
             <?php esc_html_e( 'Şema', 'wp-seo-master' ); ?>
-        </a>
-        <a href="?page=wp-seo-master-settings&tab=social" class="nav-tab">
-            <?php esc_html_e( 'Sosyal Medya', 'wp-seo-master' ); ?>
-        </a>
-        <a href="?page=wp-seo-master-settings&tab=sitemap" class="nav-tab">
-            <?php esc_html_e( 'Sitemap', 'wp-seo-master' ); ?>
-        </a>
+        </button>
+        <button type="button" class="wpsm-tab-btn" data-tab="advanced">
+            <span class="dashicons dashicons-admin-settings"></span>
+            <?php esc_html_e( 'Gelişmiş', 'wp-seo-master' ); ?>
+        </button>
     </nav>
 
-    <form method="post" action="">
-        <?php wp_nonce_field( 'wpsm_save_settings', 'wpsm_nonce' ); ?>
+    <div class="wpsm-tabs-content">
 
-        <!-- Title Separator -->
-        <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Başlık Ayırıcı', 'wp-seo-master' ); ?></span></h2>
-            <div class="inside">
-                <table class="form-table">
-                    <tr>
-                        <th><label for="wpsm-title-separator"><?php esc_html_e( 'Ayırıcı', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <select name="wpsm_settings[title_separator]" id="wpsm-title-separator">
-                                <?php foreach ( array('|'=>'|','-'=>'-','–'=>'–','»'=>'»','/'=>'/') as $v => $l ) : ?>
-                                    <option value="<?php echo esc_attr( $v ); ?>" <?php selected( $title_separator, $v ); ?>>
-                                        <?php echo esc_html( $l ); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <p class="description">
-                                <?php
-                                printf(
-                                    esc_html__( 'Örnek: %s', 'wp-seo-master' ),
-                                    '<strong>' . esc_html( get_bloginfo( 'name' ) ) . ' ' .
-                                    esc_html( $title_separator ) . ' ' .
-                                    esc_html__( 'Sayfa Başlığı', 'wp-seo-master' ) . '</strong>'
-                                );
-                                ?>
-                            </p>
-                        </td>
-                    </tr>
-                </table>
+        <!-- SEKME 1: İÇERİK -->
+        <div class="wpsm-tab-panel active" id="wpsm-tab-content">
+            <!-- SEO Title (60 karakter sayacı) -->
+            <div class="wpsm-field-group">
+                <label for="wpsm-title" class="wpsm-field-label">
+                    <?php esc_html_e( 'SEO Başlığı', 'wp-seo-master' ); ?>
+                    <span class="wpsm-char-counter" data-target="wpsm-title" data-max="60">
+                        <span class="wpsm-char-count">0</span>/60
+                    </span>
+                </label>
+                <input type="text" id="wpsm-title" name="wpsm_title"
+                    value="<?php echo esc_attr( $title ); ?>"
+                    class="wpsm-input wpsm-char-input"
+                    placeholder="<?php echo esc_attr( get_the_title( $post_id ) ); ?>"
+                />
+            </div>
+
+            <!-- Meta Description (160 karakter sayacı) -->
+            <div class="wpsm-field-group">
+                <label for="wpsm-description" class="wpsm-field-label">
+                    <?php esc_html_e( 'Meta Açıklaması', 'wp-seo-master' ); ?>
+                    <span class="wpsm-char-counter" data-target="wpsm-description" data-max="160">
+                        <span class="wpsm-char-count">0</span>/160
+                    </span>
+                </label>
+                <textarea id="wpsm-description" name="wpsm_description"
+                    class="wpsm-textarea wpsm-char-input" rows="3"
+                ><?php echo esc_textarea( $description ); ?></textarea>
+            </div>
+
+            <!-- Focus Keyword -->
+            <div class="wpsm-field-group">
+                <label for="wpsm-focus-keyword" class="wpsm-field-label">
+                    <?php esc_html_e( 'Odak Anahtar Kelime', 'wp-seo-master' ); ?>
+                </label>
+                <input type="text" id="wpsm-focus-keyword" name="wpsm_focus_keyword"
+                    value="<?php echo esc_attr( $focus_keyword ); ?>" class="wpsm-input"
+                />
+            </div>
+
+            <!-- Canonical URL -->
+            <div class="wpsm-field-group">
+                <label for="wpsm-canonical" class="wpsm-field-label">
+                    <?php esc_html_e( 'Canonical URL', 'wp-seo-master' ); ?>
+                </label>
+                <input type="url" id="wpsm-canonical" name="wpsm_canonical"
+                    value="<?php echo esc_url( $canonical ); ?>" class="wpsm-input"
+                    placeholder="<?php echo esc_url( get_permalink( $post_id ) ); ?>"
+                />
+            </div>
+
+            <!-- SERP Önizleme -->
+            <div class="wpsm-serp-preview">
+                <div class="wpsm-serp-title" id="wpsm-serp-title-preview">
+                    <?php echo esc_html( ! empty( $title ) ? $title : get_the_title( $post_id ) ); ?>
+                </div>
+                <div class="wpsm-serp-url"><?php echo esc_url( get_permalink( $post_id ) ); ?></div>
+                <div class="wpsm-serp-desc" id="wpsm-serp-desc-preview">
+                    <?php echo esc_html( ! empty( $description ) ? $description : 'Meta açıklamanız...' ); ?>
+                </div>
             </div>
         </div>
 
-        <!-- Home SEO -->
-        <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Ana Sayfa SEO', 'wp-seo-master' ); ?></span></h2>
-            <div class="inside">
-                <table class="form-table">
-                    <tr>
-                        <th><label for="wpsm-home-title"><?php esc_html_e( 'Başlık', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <input type="text" name="wpsm_settings[home_title]" id="wpsm-home-title"
-                                value="<?php echo esc_attr( $home_title ); ?>"
-                                class="regular-text wpsm-char-input" data-max="60"
-                                placeholder="<?php echo esc_attr( get_bloginfo( 'name' ) ); ?>"
-                            />
-                            <span class="wpsm-char-counter"><span class="wpsm-char-count">0</span>/60</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="wpsm-home-desc"><?php esc_html_e( 'Açıklama', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <textarea name="wpsm_settings[home_description]" id="wpsm-home-desc"
-                                class="large-text wpsm-char-input" data-max="160" rows="3"
-                            ><?php echo esc_textarea( $home_description ); ?></textarea>
-                            <span class="wpsm-char-counter"><span class="wpsm-char-count">0</span>/160</span>
-                        </td>
-                    </tr>
-                </table>
+        <!-- SEKME 2: SOSYAL -->
+        <div class="wpsm-tab-panel" id="wpsm-tab-social">
+            <div class="wpsm-section-header">
+                <h4><?php esc_html_e( 'Open Graph', 'wp-seo-master' ); ?></h4>
+            </div>
+
+            <div class="wpsm-field-group">
+                <label for="wpsm-og-title" class="wpsm-field-label">OG Başlığı</label>
+                <input type="text" id="wpsm-og-title" name="wpsm_og_title"
+                    value="<?php echo esc_attr( $og_title ); ?>" class="wpsm-input"
+                />
+            </div>
+
+            <div class="wpsm-field-group">
+                <label for="wpsm-og-description" class="wpsm-field-label">OG Açıklaması</label>
+                <textarea id="wpsm-og-description" name="wpsm_og_description"
+                    class="wpsm-textarea" rows="2"
+                ><?php echo esc_textarea( $og_description ); ?></textarea>
+            </div>
+
+            <!-- OG Image (Media Uploader) -->
+            <div class="wpsm-field-group">
+                <label class="wpsm-field-label">OG Görseli</label>
+                <div class="wpsm-media-upload-wrapper" data-field="wpsm-og-image">
+                    <input type="hidden" id="wpsm-og-image" name="wpsm_og_image"
+                        value="<?php echo esc_url( $og_image ); ?>"
+                    />
+                    <div class="wpsm-media-preview" <?php echo empty( $og_image ) ? 'style="display:none;"' : ''; ?>>
+                        <img src="<?php echo esc_url( $og_image ); ?>" alt="OG" />
+                    </div>
+                    <button type="button" class="button wpsm-media-upload-btn">Görsel Seç</button>
+                    <button type="button" class="button wpsm-media-remove-btn"
+                        <?php echo empty( $og_image ) ? 'style="display:none;"' : ''; ?>>Kaldır</button>
+                </div>
+            </div>
+
+            <!-- Twitter alanları -->
+            <div class="wpsm-section-header">
+                <h4><?php esc_html_e( 'Twitter Cards', 'wp-seo-master' ); ?></h4>
+            </div>
+
+            <div class="wpsm-field-group">
+                <label for="wpsm-twitter-title" class="wpsm-field-label">Twitter Başlığı</label>
+                <input type="text" id="wpsm-twitter-title" name="wpsm_twitter_title"
+                    value="<?php echo esc_attr( $twitter_title ); ?>" class="wpsm-input"
+                />
+            </div>
+
+            <div class="wpsm-field-group">
+                <label class="wpsm-field-label">Twitter Görseli</label>
+                <div class="wpsm-media-upload-wrapper" data-field="wpsm-twitter-image">
+                    <input type="hidden" id="wpsm-twitter-image" name="wpsm_twitter_image"
+                        value="<?php echo esc_url( $twitter_image ); ?>"
+                    />
+                    <div class="wpsm-media-preview" <?php echo empty( $twitter_image ) ? 'style="display:none;"' : ''; ?>>
+                        <img src="<?php echo esc_url( $twitter_image ); ?>" alt="Twitter" />
+                    </div>
+                    <button type="button" class="button wpsm-media-upload-btn">Görsel Seç</button>
+                    <button type="button" class="button wpsm-media-remove-btn"
+                        <?php echo empty( $twitter_image ) ? 'style="display:none;"' : ''; ?>>Kaldır</button>
+                </div>
             </div>
         </div>
 
-        <!-- Verification Codes -->
-        <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Webmaster Doğrulama', 'wp-seo-master' ); ?></span></h2>
-            <div class="inside">
-                <table class="form-table">
-                    <tr>
-                        <th><label for="wpsm-google-v"><?php esc_html_e( 'Google', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <input type="text" name="wpsm_settings[google_verification]" id="wpsm-google-v"
-                                value="<?php echo esc_attr( $google_verification ); ?>" class="regular-text"
-                            />
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="wpsm-bing-v"><?php esc_html_e( 'Bing', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <input type="text" name="wpsm_settings[bing_verification]" id="wpsm-bing-v"
-                                value="<?php echo esc_attr( $bing_verification ); ?>" class="regular-text"
-                            />
-                        </td>
-                    </tr>
-                </table>
+        <!-- SEKME 3: ŞEMA -->
+        <div class="wpsm-tab-panel" id="wpsm-tab-schema">
+            <div class="wpsm-field-group">
+                <label for="wpsm-schema-type" class="wpsm-field-label">Schema Türü</label>
+                <select id="wpsm-schema-type" name="wpsm_schema_type" class="wpsm-select">
+                    <option value="none" <?php selected( $schema_type, 'none' ); ?>>— Seçiniz —</option>
+                    <option value="article" <?php selected( $schema_type, 'article' ); ?>>Article</option>
+                    <option value="faq" <?php selected( $schema_type, 'faq' ); ?>>FAQ</option>
+                    <option value="howto" <?php selected( $schema_type, 'howto' ); ?>>HowTo</option>
+                    <option value="product" <?php selected( $schema_type, 'product' ); ?>>Product</option>
+                    <option value="localbusiness" <?php selected( $schema_type, 'localbusiness' ); ?>>LocalBusiness</option>
+                </select>
             </div>
-        </div>
 
-        <!-- Robots.txt -->
-        <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Robots.txt', 'wp-seo-master' ); ?></span></h2>
-            <div class="inside">
-                <table class="form-table">
-                    <tr>
-                        <th><label for="wpsm-robots-txt"><?php esc_html_e( 'İçerik', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <textarea name="wpsm_settings[robots_txt]" id="wpsm-robots-txt"
-                                class="large-text code" rows="10"
-                            ><?php echo esc_textarea( ! empty( $robots_txt ) ? $robots_txt : $default_robots ); ?></textarea>
-                            <button type="button" class="button" id="wpsm-reset-robots"
-                                data-default="<?php echo esc_attr( $default_robots ); ?>"
-                            >
-                                <?php esc_html_e( 'Varsayılana Dön', 'wp-seo-master' ); ?>
-                            </button>
-                        </td>
-                    </tr>
-                </table>
+            <!-- Dinamik Schema Alanları (AJAX ile yüklenir) -->
+            <div id="wpsm-schema-fields" class="wpsm-schema-fields-wrapper">
+                <div class="wpsm-schema-loader" style="display:none;">
+                    <span class="spinner is-active"></span> Yükleniyor...
+                </div>
+                <div class="wpsm-schema-dynamic-fields"
+                    data-schema-type="<?php echo esc_attr( $schema_type ); ?>">
+                    <?php
+                    if ( 'none' !== $schema_type && ! empty( $schema_type ) ) {
+                        // $wpsm_metabox = Class_Metabox instance
+                        if ( isset( $wpsm_metabox ) && is_object( $wpsm_metabox ) ) {
+                            $wpsm_metabox->render_schema_fields( $schema_type, $schema_data );
+                        }
+                    } else {
+                        echo '<div class="wpsm-schema-empty"><p>' .
+                            esc_html__( 'Bir schema türü seçerek ilgili alanları görüntüleyin.', 'wp-seo-master' ) .
+                            '</p></div>';
+                    }
+                    ?>
+                </div>
             </div>
-        </div>
 
-        <p class="submit">
-            <input type="submit" name="wpsm_save_general" class="button-primary"
-                value="<?php esc_attr_e( 'Kaydet', 'wp-seo-master' ); ?>"
+            <input type="hidden" id="wpsm-schema-data-json" name="wpsm_schema_data"
+                value="<?php echo esc_attr( $schema_data_json ); ?>"
             />
-        </p>
-    </form>
+        </div>
+
+        <!-- SEKME 4: GELİŞMİŞ -->
+        <div class="wpsm-tab-panel" id="wpsm-tab-advanced">
+            <div class="wpsm-section-header">
+                <h4><?php esc_html_e( 'Robots Meta', 'wp-seo-master' ); ?></h4>
+            </div>
+
+            <div class="wpsm-checkbox-group">
+                <?php
+                $robot_options = array(
+                    'noindex'      => __( 'Arama motorlarına indeksletme', 'wp-seo-master' ),
+                    'nofollow'     => __( 'Bağlantıları takip ettirme', 'wp-seo-master' ),
+                    'noarchive'    => __( 'Önbelleğe alma', 'wp-seo-master' ),
+                    'nosnippet'    => __( 'Snippet gösterme', 'wp-seo-master' ),
+                    'noimageindex' => __( 'Görselleri indeksletme', 'wp-seo-master' ),
+                );
+                foreach ( $robot_options as $robot_key => $robot_label ) :
+                ?>
+                    <label class="wpsm-checkbox-label">
+                        <input type="checkbox" name="wpsm_robots[]" value="<?php echo esc_attr( $robot_key ); ?>"
+                            <?php checked( in_array( $robot_key, $robots, true ) ); ?>
+                        />
+                        <span class="wpsm-checkbox-text">
+                            <strong><?php echo esc_html( $robot_key ); ?></strong> —
+                            <?php echo esc_html( $robot_label ); ?>
+                        </span>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+
+            <div class="wpsm-section-header">
+                <h4><?php esc_html_e( 'Breadcrumb', 'wp-seo-master' ); ?></h4>
+            </div>
+            <div class="wpsm-field-group">
+                <label for="wpsm-breadcrumb-title" class="wpsm-field-label">Breadcrumb Başlığı</label>
+                <input type="text" id="wpsm-breadcrumb-title" name="wpsm_breadcrumb_title"
+                    value="<?php echo esc_attr( $breadcrumb_title ); ?>" class="wpsm-input"
+                    placeholder="<?php echo esc_attr( get_the_title( $post_id ) ); ?>"
+                />
+            </div>
+        </div>
+
+    </div>
 </div>`,
   },
   {
-    id: 'social-view',
-    name: 'settings-social.php',
-    path: 'includes/Admin/views/settings-social.php',
-    description: 'Sosyal medya view - Facebook, Twitter, OG görsel, card tipi',
-    language: 'php',
-    code: `<?php
-/**
- * Sosyal Medya Ayarları Sayfası View
+    id: 'js',
+    name: 'admin.js',
+    path: 'assets/js/admin.js',
+    description: 'Metabox JavaScript - Karakter sayacı, tab, media uploader, AJAX schema',
+    language: 'javascript',
+    code: `/**
+ * WP SEO Master - Admin JavaScript
  *
- * @var \\WPSM\\Class_Options $options
+ * - Karakter sayacı (Title: 60, Description: 160)
+ * - Tab geçişleri
+ * - Media uploader (wp.media)
+ * - Schema tipi değişince AJAX ile alanları getir
+ * - SERP önizleme güncelleme
+ * - Schema repeater (FAQ, HowTo)
  */
-if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-// Mevcut değerler
-$facebook_app_id   = $options->get( 'facebook_app_id', '' );
-$twitter_site      = $options->get( 'twitter_site', '' );
-$default_og_image  = $options->get( 'default_og_image', '' );
-$twitter_card_type = $options->get( 'twitter_card_type', 'summary_large_image' );
-$enable_opengraph  = $options->get( 'enable_opengraph', true );
-$enable_twitter    = $options->get( 'enable_twitter', true );
+(function ($) {
+    'use strict';
 
-// Kaydetme
-$message = '';
-if ( isset( $_POST['wpsm_save_social'] ) ) {
-    if ( ! isset( $_POST['wpsm_nonce'] ) ||
-         ! wp_verify_nonce( $_POST['wpsm_nonce'], 'wpsm_save_settings' ) ) {
-        $message = '<div class="notice notice-error"><p>' .
-            esc_html__( 'Doğrulama başarısız.', 'wp-seo-master' ) . '</p></div>';
-    } elseif ( ! current_user_can( 'manage_options' ) ) {
-        $message = '<div class="notice notice-error"><p>' .
-            esc_html__( 'Yetkiniz yok.', 'wp-seo-master' ) . '</p></div>';
-    } else {
-        $data = array();
-        if ( isset( $_POST['wpsm_settings'] ) ) {
-            foreach ( $_POST['wpsm_settings'] as $key => $value ) {
-                $key = sanitize_text_field( $key );
-                if ( strpos( $key, 'twitter' ) !== false ) {
-                    $value = ltrim( sanitize_text_field( $value ), '@' );
-                } elseif ( 'default_og_image' === $key ) {
-                    $value = esc_url_raw( $value );
-                } else {
-                    $value = sanitize_text_field( $value );
-                }
-                $data[ $key ] = $value;
+    var WPSM_Admin = {
+
+        init: function () {
+            this.initCharCounters();
+            this.initTabs();
+            this.initMediaUploader();
+            this.initSchemaTypeChange();
+            this.initSchemaRepeater();
+            this.initSerpPreview();
+        },
+
+        /**
+         * Karakter Sayacı
+         * Renk: yeşil (<=80%), sarı (80-100%), kırmızı (>100%)
+         */
+        initCharCounters: function () {
+            var self = this;
+
+            $('.wpsm-char-counter').each(function () {
+                var $counter = $(this);
+                var targetId = $counter.data('target');
+                var maxChars = parseInt($counter.data('max'), 10);
+                var $input = $('#' + targetId);
+
+                if (!$input.length) return;
+
+                // İlk yükleme
+                self.updateCharCounter($input, $counter, maxChars);
+
+                // Input değiştiğinde güncelle
+                $input.on('input keyup', function () {
+                    self.updateCharCounter($(this), $counter, maxChars);
+                });
+            });
+        },
+
+        updateCharCounter: function ($input, $counter, maxChars) {
+            var currentLength = $input.val().length;
+            var $countSpan = $counter.find('.wpsm-char-count');
+
+            $countSpan.text(currentLength);
+            $counter.removeClass('wpsm-char-green wpsm-char-yellow wpsm-char-red wpsm-char-gray');
+
+            var percentage = (currentLength / maxChars) * 100;
+
+            if (currentLength === 0) {
+                $counter.addClass('wpsm-char-gray');
+            } else if (percentage <= 80) {
+                $counter.addClass('wpsm-char-green');
+            } else if (percentage <= 100) {
+                $counter.addClass('wpsm-char-yellow');
+            } else {
+                $counter.addClass('wpsm-char-red');
             }
+        },
+
+        /**
+         * Tab Geçişleri
+         */
+        initTabs: function () {
+            $(document).on('click', '.wpsm-tab-btn', function (e) {
+                e.preventDefault();
+                var tabId = $(this).data('tab');
+
+                $('.wpsm-tab-btn').removeClass('active');
+                $(this).addClass('active');
+
+                $('.wpsm-tab-panel').removeClass('active');
+                $('#wpsm-tab-' + tabId).addClass('active');
+            });
+        },
+
+        /**
+         * Media Uploader (wp.media)
+         */
+        initMediaUploader: function () {
+            var mediaFrame;
+
+            $(document).on('click', '.wpsm-media-upload-btn', function (e) {
+                e.preventDefault();
+
+                var $wrapper = $(this).closest('.wpsm-media-upload-wrapper');
+                var $input = $wrapper.find('input[type="hidden"]');
+                var $preview = $wrapper.find('.wpsm-media-preview');
+                var $previewImg = $preview.find('img');
+                var $removeBtn = $wrapper.find('.wpsm-media-remove-btn');
+
+                if (mediaFrame) {
+                    mediaFrame.open();
+                    return;
+                }
+
+                mediaFrame = wp.media({
+                    title: wpsmAdmin.i18n.selectImage || 'Görsel Seç',
+                    button: { text: wpsmAdmin.i18n.useImage || 'Kullan' },
+                    multiple: false,
+                    library: { type: 'image' }
+                });
+
+                mediaFrame.on('select', function () {
+                    var attachment = mediaFrame.state().get('selection').first().toJSON();
+                    var imageUrl = attachment.sizes && attachment.sizes.medium
+                        ? attachment.sizes.medium.url
+                        : attachment.url;
+
+                    $input.val(imageUrl);
+                    $previewImg.attr('src', imageUrl);
+                    $preview.show();
+                    $removeBtn.show();
+                });
+
+                mediaFrame.open();
+            });
+
+            // Görsel kaldır
+            $(document).on('click', '.wpsm-media-remove-btn', function (e) {
+                e.preventDefault();
+                var $wrapper = $(this).closest('.wpsm-media-upload-wrapper');
+                $wrapper.find('input[type="hidden"]').val('');
+                $wrapper.find('.wpsm-media-preview').hide();
+                $(this).hide();
+            });
+        },
+
+        /**
+         * Schema Tipi Değişimi (AJAX)
+         */
+        initSchemaTypeChange: function () {
+            $('#wpsm-schema-type').on('change', function () {
+                var schemaType = $(this).val();
+                var $fieldsWrapper = $('#wpsm-schema-fields');
+                var $dynamicFields = $fieldsWrapper.find('.wpsm-schema-dynamic-fields');
+                var $loader = $fieldsWrapper.find('.wpsm-schema-loader');
+                var $empty = $fieldsWrapper.find('.wpsm-schema-empty');
+
+                if (schemaType === 'none' || schemaType === '') {
+                    $dynamicFields.empty().hide();
+                    $fieldsWrapper.find('.wpsm-schema-empty').show();
+                    return;
+                }
+
+                $empty.hide();
+                $loader.show();
+
+                $.ajax({
+                    url: wpsmAdmin.ajaxUrl,
+                    type: 'POST',
+                     {
+                        action: 'wpsm_load_schema_fields',
+                        schema_type: schemaType,
+                        nonce: wpsmAdmin.nonce
+                    },
+                    success: function (response) {
+                        $loader.hide();
+                        if (response.success) {
+                            $dynamicFields.html(response.data.html).show();
+                            $dynamicFields.attr('data-schema-type', schemaType);
+                        } else {
+                            $dynamicFields.html(
+                                '<p class="wpsm-error">' +
+                                (response.data.message || 'Hata') +
+                                '</p>'
+                            ).show();
+                        }
+                    },
+                    error: function () {
+                        $loader.hide();
+                        $dynamicFields.html(
+                            '<p class="wpsm-error">Bağlantı hatası.</p>'
+                        ).show();
+                    }
+                });
+            });
+        },
+
+        /**
+         * Schema Repeater (FAQ, HowTo)
+         */
+        initSchemaRepeater: function () {
+            // Eleman ekle
+            $(document).on('click', '.wpsm-schema-add-item', function (e) {
+                e.preventDefault();
+                var $container = $(this).prev('.wpsm-schema-repeater');
+                var type = $(this).data('type');
+                var index = $container.find('.wpsm-schema-repeater-item').length;
+                var html = '';
+
+                if (type === 'faq') {
+                    html = '<div class="wpsm-schema-repeater-item">' +
+                        '<div class="wpsm-schema-field">' +
+                        '<label>Soru ' + (index + 1) + '</label>' +
+                        '<input type="text" name="wpsm_schema_data[questions][' + index + '][question]" class="wpsm-input" />' +
+                        '</div>' +
+                        '<div class="wpsm-schema-field">' +
+                        '<label>Cevap</label>' +
+                        '<textarea name="wpsm_schema_data[questions][' + index + '][answer]" class="wpsm-textarea" rows="3"></textarea>' +
+                        '</div>' +
+                        '<button type="button" class="button wpsm-schema-remove-item">Kaldır</button>' +
+                        '</div>';
+                } else if (type === 'howto') {
+                    html = '<div class="wpsm-schema-repeater-item">' +
+                        '<div class="wpsm-schema-field">' +
+                        '<label>Adım ' + (index + 1) + '</label>' +
+                        '<input type="text" name="wpsm_schema_data[steps][' + index + '][name]" class="wpsm-input" />' +
+                        '</div>' +
+                        '<div class="wpsm-schema-field">' +
+                        '<label>Açıklama</label>' +
+                        '<textarea name="wpsm_schema_data[steps][' + index + '][text]" class="wpsm-textarea" rows="2"></textarea>' +
+                        '</div>' +
+                        '<button type="button" class="button wpsm-schema-remove-item">Kaldır</button>' +
+                        '</div>';
+                }
+
+                $container.append(html);
+            });
+
+            // Eleman kaldır
+            $(document).on('click', '.wpsm-schema-remove-item', function (e) {
+                e.preventDefault();
+                $(this).closest('.wpsm-schema-repeater-item').remove();
+            });
+        },
+
+        /**
+         * SERP Önizleme
+         */
+        initSerpPreview: function () {
+            $('#wpsm-title').on('input keyup', function () {
+                var value = $(this).val();
+                $('#wpsm-serp-title-preview').text(
+                    value || $(this).attr('placeholder') || 'Sayfa Başlığı'
+                );
+            });
+
+            $('#wpsm-description').on('input keyup', function () {
+                var value = $(this).val();
+                $('#wpsm-serp-desc-preview').text(
+                    value || 'Meta açıklamanız burada görünecek...'
+                );
+            });
         }
-        // Checkbox'lar
-        $data['enable_opengraph'] = isset( $_POST['wpsm_settings']['enable_opengraph'] );
-        $data['enable_twitter']   = isset( $_POST['wpsm_settings']['enable_twitter'] );
+    };
 
-        $options->update( $data );
-        $message = '<div class="notice notice-success is-dismissible"><p>' .
-            esc_html__( 'Ayarlar kaydedildi.', 'wp-seo-master' ) . '</p></div>';
-    }
+    $(document).ready(function () {
+        if ($('#wpsm-seo-metabox').length) {
+            WPSM_Admin.init();
+        }
+    });
+
+})(jQuery);`,
+  },
+  {
+    id: 'css',
+    name: 'admin.css',
+    path: 'assets/css/admin.css',
+    description: 'Metabox CSS - Tab, form, karakter sayacı, SERP preview, schema, media',
+    language: 'css',
+    code: `/**
+ * WP SEO Master - Admin CSS
+ *
+ * - Tab yapısı
+ * - Form alanları
+ * - Karakter sayacı renkleri (yeşil/sarı/kırmızı)
+ * - Media uploader
+ * - Schema alanları
+ * - SERP önizleme
+ * - Checkbox'lar
+ */
+
+/* WRAPPER */
+.wpsm-metabox-wrapper {
+    margin: -6px -12px -12px;
 }
-?>
 
-<div class="wrap">
-    <h1>
-        <span class="dashicons dashicons-share"></span>
-        <?php esc_html_e( 'Sosyal Medya Ayarları', 'wp-seo-master' ); ?>
-    </h1>
+/* TAB NAVIGATION */
+.wpsm-tabs-nav {
+    display: flex;
+    border-bottom: 1px solid #dcdcde;
+    background: #f6f7f7;
+    padding: 0;
+    margin: 0;
+}
 
-    <?php echo $message; // phpcs:ignore ?>
+.wpsm-tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: #50575e;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+    margin-bottom: -1px;
+}
 
-    <!-- Tab Navigation -->
-    <nav class="nav-tab-wrapper">
-        <a href="?page=wp-seo-master-settings&tab=general" class="nav-tab">Genel</a>
-        <a href="?page=wp-seo-master-settings&tab=schema" class="nav-tab">Şema</a>
-        <a href="?page=wp-seo-master-settings&tab=social" class="nav-tab nav-tab-active">Sosyal Medya</a>
-        <a href="?page=wp-seo-master-settings&tab=sitemap" class="nav-tab">Sitemap</a>
-    </nav>
+.wpsm-tab-btn:hover {
+    color: #1d2327;
+    background: rgba(0, 0, 0, 0.02);
+}
 
-    <form method="post" action="">
-        <?php wp_nonce_field( 'wpsm_save_settings', 'wpsm_nonce' ); ?>
+.wpsm-tab-btn.active {
+    color: #2271b1;
+    border-bottom-color: #2271b1;
+    background: #fff;
+}
 
-        <!-- Facebook / Open Graph -->
-        <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Facebook / Open Graph', 'wp-seo-master' ); ?></span></h2>
-            <div class="inside">
-                <table class="form-table">
-                    <tr>
-                        <th><label><?php esc_html_e( 'OG Etkin', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="wpsm_settings[enable_opengraph]" value="1"
-                                    <?php checked( $enable_opengraph ); ?>
-                                />
-                                <?php esc_html_e( 'Open Graph meta etiketlerini etkinleştir', 'wp-seo-master' ); ?>
-                            </label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="wpsm-fb-app-id"><?php esc_html_e( 'Facebook App ID', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <input type="text" name="wpsm_settings[facebook_app_id]" id="wpsm-fb-app-id"
-                                value="<?php echo esc_attr( $facebook_app_id ); ?>" class="regular-text"
-                            />
-                            <p class="description">
-                                <?php
-                                printf(
-                                    wp_kses(
-                                        __( '<a href="%s" target="_blank">Facebook Developers</a> sayfasından alabilirsiniz.', 'wp-seo-master' ),
-                                        array( 'a' => array( 'href' => array(), 'target' => array() ) )
-                                    ),
-                                    esc_url( 'https://developers.facebook.com/' )
-                                );
-                                ?>
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label><?php esc_html_e( 'Varsayılan OG Görseli', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <div class="wpsm-media-upload-wrapper">
-                                <input type="hidden" name="wpsm_settings[default_og_image]"
-                                    value="<?php echo esc_url( $default_og_image ); ?>"
-                                />
-                                <div class="wpsm-media-preview" <?php echo empty( $default_og_image ) ? 'style="display:none;"' : ''; ?>>
-                                    <img src="<?php echo esc_url( $default_og_image ); ?>" alt="OG" />
-                                </div>
-                                <button type="button" class="button wpsm-media-upload-btn">
-                                    <?php esc_html_e( 'Görsel Seç', 'wp-seo-master' ); ?>
-                                </button>
-                                <button type="button" class="button wpsm-media-remove-btn"
-                                    <?php echo empty( $default_og_image ) ? 'style="display:none;"' : ''; ?>
-                                >
-                                    <?php esc_html_e( 'Kaldır', 'wp-seo-master' ); ?>
-                                </button>
-                            </div>
-                            <p class="description">
-                                <?php esc_html_e( 'Önerilen: 1200 x 630px', 'wp-seo-master' ); ?>
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </div>
+.wpsm-tab-btn .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
 
-        <!-- Twitter -->
-        <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Twitter / X Cards', 'wp-seo-master' ); ?></span></h2>
-            <div class="inside">
-                <table class="form-table">
-                    <tr>
-                        <th><label><?php esc_html_e( 'Twitter Cards', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="wpsm_settings[enable_twitter]" value="1"
-                                    <?php checked( $enable_twitter ); ?>
-                                />
-                                <?php esc_html_e( 'Twitter Card etiketlerini etkinleştir', 'wp-seo-master' ); ?>
-                            </label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="wpsm-twitter-site"><?php esc_html_e( 'Twitter Kullanıcı Adı', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <div style="display:flex;align-items:center;gap:5px;">
-                                <span>@</span>
-                                <input type="text" name="wpsm_settings[twitter_site]" id="wpsm-twitter-site"
-                                    value="<?php echo esc_attr( $twitter_site ); ?>" class="regular-text"
-                                    placeholder="kullaniciadi"
-                                />
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="wpsm-twitter-card-type"><?php esc_html_e( 'Card Türü', 'wp-seo-master' ); ?></label></th>
-                        <td>
-                            <select name="wpsm_settings[twitter_card_type]" id="wpsm-twitter-card-type">
-                                <option value="summary" <?php selected( $twitter_card_type, 'summary' ); ?>>
-                                    <?php esc_html_e( 'Özet', 'wp-seo-master' ); ?>
-                                </option>
-                                <option value="summary_large_image" <?php selected( $twitter_card_type, 'summary_large_image' ); ?>>
-                                    <?php esc_html_e( 'Büyük Görsel', 'wp-seo-master' ); ?>
-                                </option>
-                            </select>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </div>
+/* TAB CONTENT */
+.wpsm-tabs-content {
+    padding: 16px 20px;
+    background: #fff;
+}
 
-        <p class="submit">
-            <input type="submit" name="wpsm_save_social" class="button-primary"
-                value="<?php esc_attr_e( 'Kaydet', 'wp-seo-master' ); ?>"
-            />
-        </p>
-    </form>
-</div>`,
+.wpsm-tab-panel {
+    display: none;
+}
+
+.wpsm-tab-panel.active {
+    display: block;
+}
+
+/* FIELDS */
+.wpsm-field-group {
+    margin-bottom: 20px;
+}
+
+.wpsm-field-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 13px;
+    color: #1d2327;
+    margin-bottom: 6px;
+}
+
+.wpsm-field-desc {
+    font-size: 12px;
+    color: #646970;
+    margin-top: 4px;
+    font-style: italic;
+}
+
+.wpsm-input,
+.wpsm-textarea,
+.wpsm-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #2c3338;
+    background: #fff;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.wpsm-input:focus,
+.wpsm-textarea:focus,
+.wpsm-select:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.wpsm-textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+/* CHARACTER COUNTER */
+.wpsm-char-counter {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+}
+
+.wpsm-char-gray {
+    color: #8c8f94;
+    background: #f0f0f1;
+}
+
+.wpsm-char-green {
+    color: #00a32a;
+    background: #edfaef;
+}
+
+.wpsm-char-yellow {
+    color: #996800;
+    background: #fcf9e8;
+}
+
+.wpsm-char-red {
+    color: #d63638;
+    background: #fcf0f1;
+}
+
+/* SERP PREVIEW */
+.wpsm-serp-preview {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    font-family: Arial, sans-serif;
+}
+
+.wpsm-serp-title {
+    font-size: 18px;
+    color: #1a0dab;
+    line-height: 1.3;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wpsm-serp-url {
+    font-size: 13px;
+    color: #006621;
+    margin-bottom: 4px;
+}
+
+.wpsm-serp-desc {
+    font-size: 13px;
+    color: #4d5156;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* SECTION HEADERS */
+.wpsm-section-header {
+    margin: 24px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #dcdcde;
+}
+
+.wpsm-section-header:first-child {
+    margin-top: 0;
+}
+
+.wpsm-section-header h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+    margin: 0;
+}
+
+/* MEDIA UPLOADER */
+.wpsm-media-upload-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.wpsm-media-preview {
+    width: 120px;
+    height: 80px;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #f6f7f7;
+}
+
+.wpsm-media-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* CHECKBOX GROUP */
+.wpsm-checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.wpsm-checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px 12px;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.wpsm-checkbox-label:hover {
+    background: #f6f7f7;
+    border-color: #8c8f94;
+}
+
+.wpsm-checkbox-text {
+    font-size: 13px;
+    color: #50575e;
+    line-height: 1.5;
+}
+
+.wpsm-checkbox-text strong {
+    color: #1d2327;
+}
+
+/* SCHEMA FIELDS */
+.wpsm-schema-fields-wrapper {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+}
+
+.wpsm-schema-empty {
+    text-align: center;
+    padding: 20px;
+    color: #646970;
+}
+
+.wpsm-schema-loader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    color: #646970;
+}
+
+.wpsm-schema-field {
+    margin-bottom: 14px;
+}
+
+.wpsm-schema-field:last-child {
+    margin-bottom: 0;
+}
+
+.wpsm-schema-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1d2327;
+    margin-bottom: 4px;
+}
+
+.wpsm-schema-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+/* Schema Repeater */
+.wpsm-schema-repeater {
+    margin-bottom: 12px;
+}
+
+.wpsm-schema-repeater-item {
+    padding: 14px;
+    margin-bottom: 10px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.wpsm-schema-repeater-item .wpsm-schema-remove-item {
+    margin-top: 8px;
+    color: #d63638 !important;
+    border-color: #d63638 !important;
+}
+
+.wpsm-schema-add-item {
+    margin-top: 8px;
+}
+
+/* ERROR */
+.wpsm-error {
+    color: #d63638;
+    padding: 8px 12px;
+    background: #fcf0f1;
+    border: 1px solid #d63638;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+/* RESPONSIVE */
+@media screen and (max-width: 782px) {
+    .wpsm-tabs-nav {
+        flex-wrap: wrap;
+    }
+
+    .wpsm-tab-btn {
+        flex: 1;
+        justify-content: center;
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    .wpsm-schema-row {
+        grid-template-columns: 1fr;
+    }
+
+    .wpsm-media-upload-wrapper {
+        flex-direction: column;
+    }
+}`,
   },
 ]
 
@@ -777,6 +1229,16 @@ export default function CodeViewer() {
         .replace(/\b(class|function|private|public|protected|static|return|new|if|else|foreach|for|while|namespace|use|define|require_once|array|true|false|null|self|const|isset|echo|exit|switch|case|break|default)\b/g, '<span class="text-purple-400 font-medium">$1</span>')
         .replace(/(\$[a-zA-Z_]\w*)/g, '<span class="text-blue-300">$1</span>')
         .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, "'<span class=\"text-green-300\">$1</span>'")
+    } else if (language === 'javascript') {
+      highlighted = highlighted
+        .replace(/\/\/.*$/gm, '<span class="text-gray-500 italic">$&</span>')
+        .replace(/\/\*\*[\s\S]*?\*\//gm, '<span class="text-gray-500 italic">$&</span>')
+        .replace(/\b(var|let|const|function|return|if|else|for|while|this|new|typeof|true|false|null|undefined)\b/g, '<span class="text-purple-400 font-medium">$1</span>')
+        .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, "'<span class=\"text-green-300\">$1</span>'")
+    } else if (language === 'css') {
+      highlighted = highlighted
+        .replace(/\/\*[\s\S]*?\*\//gm, '<span class="text-gray-500 italic">$&</span>')
+        .replace(/(\.[\w-]+)/g, '<span class="text-yellow-300">$1</span>')
     }
 
     return highlighted
@@ -790,11 +1252,12 @@ export default function CodeViewer() {
             KAYNAK KOD
           </span>
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            Admin Arayüzü Dosyaları
+            Post Editör Metabox
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
-            WordPress admin paneli entegrasyonu: Menü yapısı, Settings API, tab navigasyonu,
-            postbox form yapısı. Tüm çıktılar escape edilmiş, nonce korumalı.
+            4 dosya: PHP sınıfı, template, JavaScript ve CSS.
+            Tab yapısı, karakter sayacı, media uploader, AJAX schema alanları,
+            SERP önizleme, Gutenberg uyumlu REST API meta kaydı.
           </p>
         </div>
 
@@ -884,7 +1347,7 @@ export default function CodeViewer() {
                 <p className="text-sm font-medium text-white group-hover:text-purple-300 transition-colors">
                   {file.name}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">{file.path}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{file.language.toUpperCase()}</p>
               </div>
               <svg className="w-5 h-5 text-gray-500 group-hover:text-purple-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -893,122 +1356,63 @@ export default function CodeViewer() {
           ))}
         </div>
 
-        {/* Admin UI Preview */}
+        {/* Metabox Preview */}
         <div className="mt-12 p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
-          <h3 className="text-lg font-bold text-white mb-6">Admin Panel Önizleme</h3>
+          <h3 className="text-lg font-bold text-white mb-6">Metabox Önizleme</h3>
           
-          {/* Simulated WP Admin */}
           <div className="bg-[#f0f0f1] rounded-lg overflow-hidden border border-gray-300">
-            {/* WP Admin Header */}
-            <div className="bg-[#1d2327] px-4 py-2 flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <span className="text-white text-sm font-medium">WordPress</span>
-              </div>
-              <div className="flex items-center space-x-3">
-                <span className="text-gray-400 text-xs">admin</span>
-              </div>
+            {/* Metabox Header */}
+            <div className="bg-white border-b border-gray-300 px-4 py-2">
+              <h2 className="text-sm font-semibold text-[#1d2327]">WP SEO Master</h2>
             </div>
 
-            <div className="flex">
-              {/* Sidebar */}
-              <div className="w-48 bg-[#1d2327] min-h-[400px] p-2 hidden sm:block">
-                {[
-                  { icon: '📊', label: 'Dashboard' },
-                  { icon: '📝', label: 'Yazılar' },
-                  { icon: '📄', label: 'Sayfalar' },
-                  { icon: '📈', label: 'WP SEO Master', active: true },
-                  { icon: '🎨', label: 'Görünüm' },
-                  { icon: '🔌', label: 'Eklentiler' },
-                  { icon: '⚙️', label: 'Ayarlar' },
-                ].map((item, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-center space-x-2 px-3 py-2 rounded text-sm ${
-                      item.active
-                        ? 'bg-[#2271b1] text-white'
-                        : 'text-gray-300 hover:bg-[#2c3338]'
-                    }`}
-                  >
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-
-                {/* Submenu */}
-                <div className="ml-4 mt-1 space-y-1">
-                  {['Dashboard', 'Genel Ayarlar', 'Şema', 'Sosyal Medya', 'Sitemap', 'İçerik Analizi'].map((sub, i) => (
-                    <div
-                      key={i}
-                      className={`text-xs px-2 py-1 rounded ${
-                        i === 1 ? 'bg-white/10 text-white' : 'text-gray-400'
-                      }`}
-                    >
-                      {sub}
-                    </div>
-                  ))}
+            {/* Tabs */}
+            <div className="flex bg-[#f6f7f7] border-b border-gray-300">
+              {[
+                { icon: '✏️', label: 'İçerik', active: true },
+                { icon: '🔗', label: 'Sosyal', active: false },
+                { icon: '{ }', label: 'Şema', active: false },
+                { icon: '⚙️', label: 'Gelişmiş', active: false },
+              ].map((tab, i) => (
+                <div
+                  key={i}
+                  className={`flex items-center gap-1 px-4 py-2.5 text-xs font-medium border-b-2 ${
+                    tab.active
+                      ? 'border-[#2271b1] text-[#2271b1] bg-white -mb-px'
+                      : 'border-transparent text-gray-500'
+                  }`}
+                >
+                  <span>{tab.icon}</span>
+                  <span>{tab.label}</span>
                 </div>
+              ))}
+            </div>
+
+            {/* Content */}
+            <div className="bg-white p-4 space-y-4">
+              {/* SEO Title */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-[#1d2327]">SEO Başlığı</label>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-600 font-medium">24/60</span>
+                </div>
+                <input type="text" className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="Sayfa başlığı..." defaultValue="WordPress SEO Eklentisi" />
               </div>
 
-              {/* Main Content */}
-              <div className="flex-1 p-4">
-                <h1 className="text-xl font-semibold text-[#1d2327] mb-4">Genel Ayarlar</h1>
-
-                {/* Tabs */}
-                <div className="flex border-b border-gray-300 mb-4">
-                  {['Genel', 'Şema', 'Sosyal Medya', 'Sitemap'].map((tab, i) => (
-                    <div
-                      key={i}
-                      className={`px-4 py-2 text-sm border-b-2 ${
-                        i === 0
-                          ? 'border-[#2271b1] text-[#1d2327] bg-white -mb-px'
-                          : 'border-transparent text-gray-500'
-                      }`}
-                    >
-                      {tab}
-                    </div>
-                  ))}
+              {/* Meta Description */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-[#1d2327]">Meta Açıklaması</label>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-600 font-medium">142/160</span>
                 </div>
+                <textarea className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm h-16" placeholder="Meta açıklaması...">WordPress için en iyi SEO eklentisi. Schema.org desteği, meta etiketleri, sitemap ve daha fazlası.</textarea>
+              </div>
 
-                {/* Postbox */}
-                <div className="bg-white border border-gray-300 rounded-sm mb-4">
-                  <div className="border-b border-gray-200 px-4 py-2 bg-white">
-                    <h2 className="text-sm font-semibold text-[#1d2327]">Başlık Ayırıcı</h2>
-                  </div>
-                  <div className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <select className="border border-gray-300 rounded px-3 py-1.5 text-sm">
-                        <option>| (Pipe)</option>
-                        <option>- (Tire)</option>
-                        <option>» (Sağ Ok)</option>
-                      </select>
-                      <span className="text-xs text-gray-500">Örnek: Site Adı | Sayfa Başlığı</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-gray-300 rounded-sm mb-4">
-                  <div className="border-b border-gray-200 px-4 py-2">
-                    <h2 className="text-sm font-semibold text-[#1d2327]">Ana Sayfa SEO</h2>
-                  </div>
-                  <div className="p-4 space-y-3">
-                    <div>
-                      <label className="text-xs font-medium text-[#1d2327] block mb-1">Başlık</label>
-                      <input type="text" className="w-full max-w-md border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="Site Başlığı" />
-                      <span className="text-xs text-green-600 ml-2">0/60</span>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-[#1d2327] block mb-1">Açıklama</label>
-                      <textarea className="w-full max-w-md border border-gray-300 rounded px-3 py-1.5 text-sm h-16" placeholder="Meta açıklaması..." />
-                      <span className="text-xs text-green-600 ml-2">0/160</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <button className="bg-[#2271b1] text-white px-4 py-1.5 rounded text-sm hover:bg-[#135e96]">
-                    Değişiklikleri Kaydet
-                  </button>
-                </div>
+              {/* SERP Preview */}
+              <div className="bg-[#f6f7f7] border border-gray-200 rounded p-3">
+                <div className="text-base text-[#1a0dab] font-medium mb-1">WordPress SEO Eklentisi</div>
+                <div className="text-xs text-[#006621] mb-1">example.com/wordpress-seo-eklentisi</div>
+                <div className="text-xs text-[#4d5156]">WordPress için en iyi SEO eklentisi. Schema.org desteği, meta etiketleri...</div>
               </div>
             </div>
           </div>
@@ -1017,20 +1421,38 @@ export default function CodeViewer() {
         {/* Features */}
         <div className="mt-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { title: '6 Menü Sayfası', desc: 'Dashboard, Genel, Şema, Sosyal, Sitemap, Analiz' },
-            { title: 'Settings API', desc: 'register_setting, sections, fields' },
-            { title: 'Tab Navigasyon', desc: '?tab=general|schema|social|sitemap' },
-            { title: 'Postbox Yapısı', desc: 'WordPress native admin UI' },
-            { title: 'Nonce Koruması', desc: 'wpsm_save_settings nonce' },
-            { title: 'Capability Check', desc: 'manage_options yetki kontrolü' },
-            { title: 'Media Uploader', desc: 'wp.media ile görsel seçimi' },
+            { title: '4 Sekme', desc: 'İçerik, Sosyal, Şema, Gelişmiş' },
             { title: 'Karakter Sayacı', desc: 'Title: 60, Desc: 160 (renk kodlu)' },
+            { title: 'Media Uploader', desc: 'wp.media ile OG/Twitter görsel' },
+            { title: 'AJAX Schema', desc: 'Tip seçilince dinamik alan yükleme' },
+            { title: 'SERP Önizleme', desc: 'Gerçek zamanlı Google preview' },
+            { title: 'Nonce + Yetki', desc: 'Güvenli form kaydetme' },
+            { title: 'REST API', desc: 'Gutenberg uyumlu post meta' },
+            { title: 'Sanitization', desc: 'Tüm girdiler sanitize edilir' },
           ].map((item, i) => (
             <div key={i} className="p-4 bg-white/[0.02] border border-white/5 rounded-xl">
               <p className="text-sm font-medium text-purple-300">{item.title}</p>
               <p className="text-xs text-gray-500 mt-1">{item.desc}</p>
             </div>
           ))}
+        </div>
+
+        {/* Meta Keys Table */}
+        <div className="mt-12 p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+          <h3 className="text-lg font-bold text-white mb-4">Kaydedilen Meta Key'leri</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {[
+              '_wpsm_title', '_wpsm_description', '_wpsm_focus_keyword',
+              '_wpsm_canonical', '_wpsm_og_title', '_wpsm_og_description',
+              '_wpsm_og_image', '_wpsm_twitter_title', '_wpsm_twitter_description',
+              '_wpsm_twitter_image', '_wpsm_schema_type', '_wpsm_schema_data',
+              '_wpsm_robots', '_wpsm_breadcrumb_title',
+            ].map((key, i) => (
+              <code key={i} className="text-xs bg-purple-500/10 text-purple-300 px-3 py-1.5 rounded border border-purple-500/20">
+                {key}
+              </code>
+            ))}
+          </div>
         </div>
       </div>
     </section>
