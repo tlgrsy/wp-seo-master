@@ -78,13 +78,13 @@ const fileTree = [
             type: 'folder',
             level: 2,
             children: [
-              { name: 'class-schema-manager.php', type: 'file', description: 'Şema yöneticisi', icon: '📊' },
-              { name: 'class-article-schema.php', type: 'file', description: 'Article şeması', icon: '📰' },
+              { name: 'class-schema-manager.php', type: 'file', description: '@graph yapısı, WebSite, Organization', icon: '📊' },
+              { name: 'class-article-schema.php', type: 'file', description: 'Article/BlogPosting, author, publisher', icon: '📰' },
               { name: 'class-faq-schema.php', type: 'file', description: 'FAQ şeması', icon: '❓' },
               { name: 'class-howto-schema.php', type: 'file', description: 'HowTo şeması', icon: '📖' },
               { name: 'class-product-schema.php', type: 'file', description: 'Product şeması', icon: '🛒' },
               { name: 'class-localbusiness-schema.php', type: 'file', description: 'LocalBusiness şeması', icon: '🏪' },
-              { name: 'class-breadcrumb-schema.php', type: 'file', description: 'Breadcrumb şeması', icon: '🧭' },
+              { name: 'class-breadcrumb-schema.php', type: 'file', description: 'BreadcrumbList, itemListElement', icon: '🧭' },
             ],
           },
           {
