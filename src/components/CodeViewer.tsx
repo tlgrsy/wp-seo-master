@@ -2,836 +2,658 @@ import { useState } from 'react'
 
 const files = [
   {
-    id: 'metabox',
-    name: 'class-metabox.php',
-    path: 'includes/Admin/class-metabox.php',
-    description: 'SEO Metabox sınıfı - Tab yapısı, kayıt, AJAX, REST API desteği',
+    id: 'installer',
+    name: 'class-installer.php',
+    path: 'includes/class-installer.php',
+    description: 'Kurulum sınıfı - Aktivasyon, deaktivasyon, migration altyapısı',
     language: 'php',
     code: `<?php
 /**
- * SEO Metabox Sınıfı
+ * Kurulum Sınıfı
  *
- * Post/Page/CPT edit ekranlarında SEO meta alanlarını gösteren metabox.
- * Tab yapısı: İçerik, Sosyal, Şema, Gelişmiş
+ * Eklenti aktivasyon ve deaktivasyon işlemlerini yönetir.
  *
- * @package WPSM\\Admin
+ * @package WPSM
  * @since 1.0.0
  */
 
-namespace WPSM\\Admin;
+namespace WPSM;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class Class_Metabox {
+class Class_Installer {
 
-    private $options;
+    const DB_VERSION        = '1.0.0';
+    const DB_VERSION_OPTION = 'wpsm_db_version';
+    const SETTINGS_OPTION   = 'wpsm_settings';
 
-    const METABOX_ID   = 'wpsm-seo-metabox';
-    const NONCE_ACTION = 'wpsm_metabox_save';
-    const NONCE_NAME   = 'wpsm_metabox_nonce';
+    /**
+     * Varsayılan ayarlar
+     * İlk kurulumda bu değerler kaydedilir.
+     */
+    private static $defaults = array(
+        // Genel Ayarlar
+        'title_separator'        => '|',
+        'enable_sitemap'         => true,
+        'enable_schema'          => true,
+        'enable_opengraph'       => true,
+        'enable_twitter'         => true,
+        'enable_breadcrumbs'     => true,
 
-    const META_KEYS = array(
-        '_wpsm_title', '_wpsm_description', '_wpsm_focus_keyword',
-        '_wpsm_canonical', '_wpsm_og_title', '_wpsm_og_description',
-        '_wpsm_og_image', '_wpsm_twitter_title', '_wpsm_twitter_description',
-        '_wpsm_twitter_image', '_wpsm_schema_type', '_wpsm_schema_data',
-        '_wpsm_robots', '_wpsm_breadcrumb_title',
+        // Schema Varsayılanları
+        'default_schema_type'    => 'Article',
+
+        // Sosyal Medya
+        'twitter_site'           => '',
+        'twitter_creator'        => '',
+        'facebook_app_id'        => '',
+        'facebook_admins'        => '',
+
+        // Webmaster Doğrulama
+        'google_verification'    => '',
+        'bing_verification'      => '',
+        'yandex_verification'    => '',
+        'pinterest_verification' => '',
+
+        // Sitemap Ayarları
+        'sitemap_post_types'     => array( 'post', 'page' ),
+        'sitemap_taxonomies'     => array( 'category' ),
+        'sitemap_posts_per_page' => 1000,
+
+        // Breadcrumb Ayarları
+        'breadcrumb_home_text'   => 'Ana Sayfa',
+        'breadcrumb_show_home'   => true,
+        'breadcrumb_separator'   => '»',
+
+        // Robots
+        'global_noindex'         => array(),
+        'rss_before_content'     => '',
+        'rss_after_content'      => '',
     );
 
-    public function __construct( $options ) {
-        $this->options = $options;
-        add_action( 'wp_ajax_wpsm_load_schema_fields', array( $this, 'ajax_load_schema_fields' ) );
-    }
-
     /**
-     * Metabox'ları kaydet
-     * context: normal, priority: high
+     * Eklenti aktivasyonu
+     *
+     * - Varsayılan ayarları kaydeder
+     * - DB versiyonunu ayarlar
+     * - Migration'ları çalıştırır
+     * - Rewrite flush yapar
      */
-    public function add_meta_boxes() {
-        $post_types = get_post_types( array( 'public' => true ) );
-        unset( $post_types['attachment'] );
-
-        foreach ( $post_types as $post_type ) {
-            add_meta_box(
-                self::METABOX_ID,
-                __( 'WP SEO Master', 'wp-seo-master' ),
-                array( $this, 'render_metabox' ),
-                $post_type,
-                'normal',
-                'high'
-            );
+    public function activate() {
+        if ( ! current_user_can( 'activate_plugins' ) ) {
+            return;
         }
 
-        // Gutenberg uyumluluğu - REST API meta kaydı
-        $this->register_post_meta();
+        // Varsayılan ayarları kaydet
+        $this->set_default_options();
+
+        // DB versiyonunu kontrol et
+        $this->check_db_version();
+
+        // Rewrite kurallarını yenile
+        flush_rewrite_rules();
+
+        // Aktivasyon transient'i (yönlendirme için)
+        set_transient( 'wpsm_activation_redirect', true, 30 );
+
+        do_action( 'wpsm_activated', ! get_option( self::DB_VERSION_OPTION ) );
     }
 
     /**
-     * Post meta alanlarını REST API'ye kaydet
-     * show_in_rest=true, auth_callback ile yetki kontrolü
+     * Eklenti deaktivasyonu
+     *
+     * Veri silmez - sadece geçici işlemleri temizler.
+     * Veri silme uninstall.php'de yapılır.
      */
-    private function register_post_meta() {
-        $post_types = get_post_types( array( 'public' => true ) );
-
-        foreach ( $post_types as $post_type ) {
-            register_post_meta( $post_type, '_wpsm_title', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_text_field',
-            ));
-
-            register_post_meta( $post_type, '_wpsm_description', array(
-                'show_in_rest'  => true,
-                'single'        => true,
-                'type'          => 'string',
-                'auth_callback' => array( $this, 'meta_auth_callback' ),
-                'sanitize_callback' => 'sanitize_textarea_field',
-            ));
-
-            // ... diğer meta alanları da aynı şekilde kaydedilir
-        }
-    }
-
-    /**
-     * Meta yetki kontrolü callback
-     */
-    public function meta_auth_callback( $allowed, $meta_key, $post_id ) {
-        return current_user_can( 'edit_post', $post_id );
-    }
-
-    /**
-     * Metabox içeriğini render et
-     */
-    public function render_metabox( $post ) {
-        wp_nonce_field( self::NONCE_ACTION, self::NONCE_NAME );
-        $post_id = $post->ID;
-        $meta = $this->get_all_meta( $post_id );
-        include WPSM_INCLUDES_PATH . 'Admin/views/metabox.php';
-    }
-
-    /**
-     * save_post hook'u ile kaydetme
-     * Nonce, autosave, revision ve yetki kontrolleri
-     */
-    public function save_meta( $post_id, $post ) {
-        // 1. Nonce kontrolü
-        if ( ! isset( $_POST[ self::NONCE_NAME ] ) ) return;
-        if ( ! wp_verify_nonce( $_POST[ self::NONCE_NAME ], self::NONCE_ACTION ) ) return;
-
-        // 2. Autosave kontrolü
-        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
-
-        // 3. Revision kontrolü
-        if ( wp_is_post_revision( $post_id ) ) return;
-
-        // 4. Yetki kontrolü
-        if ( ! current_user_can( 'edit_post', $post_id ) ) return;
-
-        // Meta alanlarını kaydet (sanitize ile)
-        if ( isset( $_POST['wpsm_title'] ) ) {
-            update_post_meta( $post_id, '_wpsm_title',
-                sanitize_text_field( wp_unslash( $_POST['wpsm_title'] ) )
-            );
+    public function deactivate() {
+        if ( ! current_user_can( 'deactivate_plugins' ) ) {
+            return;
         }
 
-        if ( isset( $_POST['wpsm_description'] ) ) {
-            update_post_meta( $post_id, '_wpsm_description',
-                sanitize_textarea_field( wp_unslash( $_POST['wpsm_description'] ) )
-            );
+        // Rewrite kurallarını temizle
+        flush_rewrite_rules();
+
+        // Cron job'ları temizle
+        wp_clear_scheduled_hook( 'wpsm_sitemap_regeneration' );
+        wp_clear_scheduled_hook( 'wpsm_content_analysis' );
+        wp_clear_scheduled_hook( 'wpsm_cleanup_temp_files' );
+
+        // Transient'leri temizle
+        delete_transient( 'wpsm_activation_redirect' );
+        delete_transient( 'wpsm_sitemap_cache' );
+
+        do_action( 'wpsm_deactivated' );
+    }
+
+    /**
+     * Varsayılan ayarları kaydet
+     *
+     * Mevcut ayarları koruyarak sadece eksik olanları ekler.
+     * Güncelleme sırasında kullanıcı ayarları kaybolmaz.
+     */
+    private function set_default_options() {
+        $existing = get_option( self::SETTINGS_OPTION, array() );
+        $settings = wp_parse_args( $existing, self::$defaults );
+        $settings = apply_filters( 'wpsm_default_settings', $settings );
+        update_option( self::SETTINGS_OPTION, $settings );
+    }
+
+    /**
+     * DB versiyonunu kontrol et
+     *
+     * Migration altyapısı:
+     * - Kayıtlı versiyonu kontrol eder
+     * - Gerekli migration'ları sırayla çalıştırır
+     * - Versiyonu günceller
+     */
+    private function check_db_version() {
+        $current_db_version = get_option( self::DB_VERSION_OPTION, '0' );
+
+        if ( version_compare( $current_db_version, self::DB_VERSION, '>=' ) ) {
+            return;
         }
 
-        // Robots (checkbox array)
-        $robots = array();
-        $allowed_robots = array( 'noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex' );
-        if ( isset( $_POST['wpsm_robots'] ) && is_array( $_POST['wpsm_robots'] ) ) {
-            foreach ( $_POST['wpsm_robots'] as $robot ) {
-                $robot = sanitize_text_field( $robot );
-                if ( in_array( $robot, $allowed_robots, true ) ) {
-                    $robots[] = $robot;
+        $this->run_migrations( $current_db_version );
+        update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+    }
+
+    /**
+     * Migration'ları çalıştır
+     *
+     * @param string $from_version Mevcut versiyon
+     */
+    private function run_migrations( $from_version ) {
+        $migrations = array(
+            '1.0.0' => 'migrate_1_0_0',
+        );
+
+        $migrations = apply_filters( 'wpsm_migrations', $migrations, $from_version );
+
+        foreach ( $migrations as $version => $method ) {
+            if ( version_compare( $from_version, $version, '<' ) ) {
+                if ( method_exists( $this, $method ) ) {
+                    $this->$method();
                 }
             }
         }
-        update_post_meta( $post_id, '_wpsm_robots', $robots );
     }
 
     /**
-     * AJAX: Schema tipine göre alanları yükle
+     * İlk kurulum migration'ı
      */
-    public function ajax_load_schema_fields() {
-        check_ajax_referer( 'wpsm_metabox_save', 'nonce' );
+    private function migrate_1_0_0() {
+        // İlk sürüm - varsayılan ayarlar zaten kaydedildi
+        // Gelecekteki migration'lar için örnek:
+        //
+        // $settings = get_option( self::SETTINGS_OPTION, array() );
+        // $settings['new_setting'] = 'default_value';
+        // update_option( self::SETTINGS_OPTION, $settings );
+    }
 
-        if ( ! current_user_can( 'edit_posts' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Yetkiniz yok.', 'wp-seo-master' ) ) );
-        }
+    /**
+     * Varsayılan ayarları döndür
+     *
+     * @return array
+     */
+    public static function get_defaults() {
+        return apply_filters( 'wpsm_installation_defaults', self::$defaults );
+    }
 
-        $schema_type = isset( $_POST['schema_type'] )
-            ? sanitize_text_field( wp_unslash( $_POST['schema_type'] ) )
-            : '';
+    /**
+     * Mevcut DB versiyonunu döndür
+     *
+     * @return string
+     */
+    public static function get_db_version() {
+        return get_option( self::DB_VERSION_OPTION, '0' );
+    }
 
-        $allowed_types = array( 'article', 'faq', 'howto', 'product', 'localbusiness' );
-        if ( ! in_array( $schema_type, $allowed_types, true ) ) {
-            wp_send_json_error( array( 'message' => __( 'Geçersiz schema türü.', 'wp-seo-master' ) ) );
-        }
-
-        ob_start();
-        $this->render_schema_fields( $schema_type, array() );
-        $html = ob_get_clean();
-
-        wp_send_json_success( array( 'html' => $html, 'type' => $schema_type ) );
+    /**
+     * Yeni kurulum mu kontrol et
+     *
+     * @return bool
+     */
+    public static function is_fresh_install() {
+        return ! get_option( self::DB_VERSION_OPTION );
     }
 }`,
   },
   {
-    id: 'view',
-    name: 'views/metabox.php',
-    path: 'includes/Admin/views/metabox.php',
-    description: 'Metabox template - Tab yapısı, form alanları, SERP önizleme',
+    id: 'options',
+    name: 'class-options.php',
+    path: 'includes/class-options.php',
+    description: 'Ayar yönetimi - get/set/all/update, sanitize, static cache',
     language: 'php',
     code: `<?php
 /**
- * SEO Metabox Template
+ * Ayar Yönetimi Sınıfı
  *
- * Tab yapısı: İçerik, Sosyal, Şema, Gelişmiş
+ * get_option('wpsm_settings') üzerinden çalışır.
+ * Static cache ile aynı request'te tekrar sorgu atmaz.
  *
- * @var int    $post_id Post ID
- * @var array  $meta    Meta değerleri
- * @var object $post    WP_Post objesi
+ * @package WPSM
+ * @since 1.0.0
  */
 
-if ( ! defined( 'ABSPATH' ) ) exit;
+namespace WPSM;
 
-// Meta değerlerini değişkenlere ata
-$title         = isset( $meta['_wpsm_title'] ) ? $meta['_wpsm_title'] : '';
-$description   = isset( $meta['_wpsm_description'] ) ? $meta['_wpsm_description'] : '';
-$focus_keyword = isset( $meta['_wpsm_focus_keyword'] ) ? $meta['_wpsm_focus_keyword'] : '';
-$canonical     = isset( $meta['_wpsm_canonical'] ) ? $meta['_wpsm_canonical'] : '';
-$og_title      = isset( $meta['_wpsm_og_title'] ) ? $meta['_wpsm_og_title'] : '';
-$og_image      = isset( $meta['_wpsm_og_image'] ) ? $meta['_wpsm_og_image'] : '';
-$schema_type   = isset( $meta['_wpsm_schema_type'] ) ? $meta['_wpsm_schema_type'] : 'none';
-$robots        = isset( $meta['_wpsm_robots'] ) ? $meta['_wpsm_robots'] : array();
-?>
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
 
-<div class="wpsm-metabox-wrapper">
-    <!-- Tab Navigation -->
-    <nav class="wpsm-tabs-nav">
-        <button type="button" class="wpsm-tab-btn active" data-tab="content">
-            <span class="dashicons dashicons-edit"></span>
-            <?php esc_html_e( 'İçerik', 'wp-seo-master' ); ?>
-        </button>
-        <button type="button" class="wpsm-tab-btn" data-tab="social">
-            <span class="dashicons dashicons-share"></span>
-            <?php esc_html_e( 'Sosyal', 'wp-seo-master' ); ?>
-        </button>
-        <button type="button" class="wpsm-tab-btn" data-tab="schema">
-            <span class="dashicons dashicons-editor-code"></span>
-            <?php esc_html_e( 'Şema', 'wp-seo-master' ); ?>
-        </button>
-        <button type="button" class="wpsm-tab-btn" data-tab="advanced">
-            <span class="dashicons dashicons-admin-settings"></span>
-            <?php esc_html_e( 'Gelişmiş', 'wp-seo-master' ); ?>
-        </button>
-    </nav>
+class Class_Options {
 
-    <div class="wpsm-tabs-content">
+    const OPTION_NAME = 'wpsm_settings';
 
-        <!-- SEKME 1: İÇERİK -->
-        <div class="wpsm-tab-panel active" id="wpsm-tab-content">
-            <!-- SEO Title (60 karakter sayacı) -->
-            <div class="wpsm-field-group">
-                <label for="wpsm-title" class="wpsm-field-label">
-                    <?php esc_html_e( 'SEO Başlığı', 'wp-seo-master' ); ?>
-                    <span class="wpsm-char-counter" data-target="wpsm-title" data-max="60">
-                        <span class="wpsm-char-count">0</span>/60
-                    </span>
-                </label>
-                <input type="text" id="wpsm-title" name="wpsm_title"
-                    value="<?php echo esc_attr( $title ); ?>"
-                    class="wpsm-input wpsm-char-input"
-                    placeholder="<?php echo esc_attr( get_the_title( $post_id ) ); ?>"
-                />
-            </div>
+    /**
+     * Static cache
+     * Aynı request'te birden fazla get() çağrısı yapıldığında
+     * veritabanına tekrar sorgu göndermez.
+     */
+    private static $cache = null;
 
-            <!-- Meta Description (160 karakter sayacı) -->
-            <div class="wpsm-field-group">
-                <label for="wpsm-description" class="wpsm-field-label">
-                    <?php esc_html_e( 'Meta Açıklaması', 'wp-seo-master' ); ?>
-                    <span class="wpsm-char-counter" data-target="wpsm-description" data-max="160">
-                        <span class="wpsm-char-count">0</span>/160
-                    </span>
-                </label>
-                <textarea id="wpsm-description" name="wpsm_description"
-                    class="wpsm-textarea wpsm-char-input" rows="3"
-                ><?php echo esc_textarea( $description ); ?></textarea>
-            </div>
+    /**
+     * Sanitize callback'leri
+     * Her ayar tipi için uygun sanitize fonksiyonu.
+     */
+    private static $sanitize_callbacks = array(
+        'title_separator'        => 'sanitize_text_field',
+        'enable_sitemap'         => 'boolean',
+        'enable_schema'          => 'boolean',
+        'enable_opengraph'       => 'boolean',
+        'enable_twitter'         => 'boolean',
+        'enable_breadcrumbs'     => 'boolean',
+        'default_schema_type'    => 'sanitize_text_field',
+        'twitter_site'           => 'sanitize_text_field',
+        'twitter_creator'        => 'sanitize_text_field',
+        'facebook_app_id'        => 'sanitize_text_field',
+        'facebook_admins'        => 'sanitize_text_field',
+        'google_verification'    => 'sanitize_text_field',
+        'bing_verification'      => 'sanitize_text_field',
+        'yandex_verification'    => 'sanitize_text_field',
+        'pinterest_verification' => 'sanitize_text_field',
+        'sitemap_post_types'     => 'array_sanitize',
+        'sitemap_taxonomies'     => 'array_sanitize',
+        'sitemap_posts_per_page' => 'intval',
+        'breadcrumb_home_text'   => 'sanitize_text_field',
+        'breadcrumb_show_home'   => 'boolean',
+        'breadcrumb_separator'   => 'sanitize_text_field',
+        'global_noindex'         => 'array_sanitize',
+        'rss_before_content'     => 'wp_kses_post',
+        'rss_after_content'      => 'wp_kses_post',
+    );
 
-            <!-- Focus Keyword -->
-            <div class="wpsm-field-group">
-                <label for="wpsm-focus-keyword" class="wpsm-field-label">
-                    <?php esc_html_e( 'Odak Anahtar Kelime', 'wp-seo-master' ); ?>
-                </label>
-                <input type="text" id="wpsm-focus-keyword" name="wpsm_focus_keyword"
-                    value="<?php echo esc_attr( $focus_keyword ); ?>" class="wpsm-input"
-                />
-            </div>
+    public function __construct() {
+        $this->load_cache();
+    }
 
-            <!-- Canonical URL -->
-            <div class="wpsm-field-group">
-                <label for="wpsm-canonical" class="wpsm-field-label">
-                    <?php esc_html_e( 'Canonical URL', 'wp-seo-master' ); ?>
-                </label>
-                <input type="url" id="wpsm-canonical" name="wpsm_canonical"
-                    value="<?php echo esc_url( $canonical ); ?>" class="wpsm-input"
-                    placeholder="<?php echo esc_url( get_permalink( $post_id ) ); ?>"
-                />
-            </div>
-
-            <!-- SERP Önizleme -->
-            <div class="wpsm-serp-preview">
-                <div class="wpsm-serp-title" id="wpsm-serp-title-preview">
-                    <?php echo esc_html( ! empty( $title ) ? $title : get_the_title( $post_id ) ); ?>
-                </div>
-                <div class="wpsm-serp-url"><?php echo esc_url( get_permalink( $post_id ) ); ?></div>
-                <div class="wpsm-serp-desc" id="wpsm-serp-desc-preview">
-                    <?php echo esc_html( ! empty( $description ) ? $description : 'Meta açıklamanız...' ); ?>
-                </div>
-            </div>
-        </div>
-
-        <!-- SEKME 2: SOSYAL -->
-        <div class="wpsm-tab-panel" id="wpsm-tab-social">
-            <div class="wpsm-section-header">
-                <h4><?php esc_html_e( 'Open Graph', 'wp-seo-master' ); ?></h4>
-            </div>
-
-            <!-- OG Title -->
-            <div class="wpsm-field-group">
-                <label for="wpsm-og-title" class="wpsm-field-label">OG Başlığı</label>
-                <input type="text" id="wpsm-og-title" name="wpsm_og_title"
-                    value="<?php echo esc_attr( $og_title ); ?>" class="wpsm-input"
-                />
-            </div>
-
-            <!-- OG Image (Media Uploader) -->
-            <div class="wpsm-field-group">
-                <label class="wpsm-field-label">OG Görseli</label>
-                <div class="wpsm-media-upload-wrapper" data-field="wpsm-og-image">
-                    <input type="hidden" id="wpsm-og-image" name="wpsm_og_image"
-                        value="<?php echo esc_url( $og_image ); ?>"
-                    />
-                    <div class="wpsm-media-preview" <?php echo empty( $og_image ) ? 'style="display:none;"' : ''; ?>>
-                        <img src="<?php echo esc_url( $og_image ); ?>" alt="OG" />
-                    </div>
-                    <button type="button" class="button wpsm-media-upload-btn">Görsel Seç</button>
-                    <button type="button" class="button wpsm-media-remove-btn">Kaldır</button>
-                </div>
-            </div>
-
-            <!-- Twitter alanları da benzer şekilde... -->
-        </div>
-
-        <!-- SEKME 3: ŞEMA -->
-        <div class="wpsm-tab-panel" id="wpsm-tab-schema">
-            <div class="wpsm-field-group">
-                <label for="wpsm-schema-type" class="wpsm-field-label">Schema Türü</label>
-                <select id="wpsm-schema-type" name="wpsm_schema_type" class="wpsm-select">
-                    <option value="none">— Seçiniz —</option>
-                    <option value="article" <?php selected( $schema_type, 'article' ); ?>>Article</option>
-                    <option value="faq" <?php selected( $schema_type, 'faq' ); ?>>FAQ</option>
-                    <option value="howto" <?php selected( $schema_type, 'howto' ); ?>>HowTo</option>
-                    <option value="product" <?php selected( $schema_type, 'product' ); ?>>Product</option>
-                    <option value="localbusiness" <?php selected( $schema_type, 'localbusiness' ); ?>>LocalBusiness</option>
-                </select>
-            </div>
-
-            <!-- Dinamik Schema Alanları (AJAX ile yüklenir) -->
-            <div id="wpsm-schema-fields" class="wpsm-schema-fields-wrapper">
-                <div class="wpsm-schema-loader" style="display:none;">
-                    <span class="spinner is-active"></span> Yükleniyor...
-                </div>
-                <div class="wpsm-schema-dynamic-fields"></div>
-            </div>
-        </div>
-
-        <!-- SEKME 4: GELİŞMİŞ -->
-        <div class="wpsm-tab-panel" id="wpsm-tab-advanced">
-            <div class="wpsm-section-header">
-                <h4><?php esc_html_e( 'Robots Meta', 'wp-seo-master' ); ?></h4>
-            </div>
-
-            <div class="wpsm-checkbox-group">
-                <label class="wpsm-checkbox-label">
-                    <input type="checkbox" name="wpsm_robots[]" value="noindex"
-                        <?php checked( in_array( 'noindex', $robots, true ) ); ?>
-                    />
-                    <span class="wpsm-checkbox-text">
-                        <strong>noindex</strong> — Arama motorlarına indeksletme
-                    </span>
-                </label>
-                <label class="wpsm-checkbox-label">
-                    <input type="checkbox" name="wpsm_robots[]" value="nofollow"
-                        <?php checked( in_array( 'nofollow', $robots, true ) ); ?>
-                    />
-                    <span class="wpsm-checkbox-text">
-                        <strong>nofollow</strong> — Bağlantıları takip ettirme
-                    </span>
-                </label>
-                <label class="wpsm-checkbox-label">
-                    <input type="checkbox" name="wpsm_robots[]" value="noarchive"
-                        <?php checked( in_array( 'noarchive', $robots, true ) ); ?>
-                    />
-                    <span class="wpsm-checkbox-text">
-                        <strong>noarchive</strong> — Önbelleğe alma
-                    </span>
-                </label>
-            </div>
-
-            <!-- Breadcrumb Başlığı -->
-            <div class="wpsm-section-header">
-                <h4><?php esc_html_e( 'Breadcrumb', 'wp-seo-master' ); ?></h4>
-            </div>
-            <div class="wpsm-field-group">
-                <label class="wpsm-field-label">Breadcrumb Başlığı</label>
-                <input type="text" name="wpsm_breadcrumb_title" class="wpsm-input"
-                    placeholder="<?php echo esc_attr( get_the_title( $post_id ) ); ?>"
-                />
-            </div>
-        </div>
-
-    </div>
-</div>`,
-  },
-  {
-    id: 'js',
-    name: 'admin.js',
-    path: 'assets/js/admin.js',
-    description: 'Metabox JavaScript - Karakter sayacı, tab geçişleri, media uploader, AJAX',
-    language: 'javascript',
-    code: `/**
- * WP SEO Master - Admin JavaScript
- *
- * - Karakter sayacı (Title: 60, Description: 160)
- * - Tab geçişleri
- * - Media uploader (wp.media)
- * - Schema tipi değişince AJAX ile alanları getir
- * - SERP önizleme güncelleme
- */
-
-(function ($) {
-    'use strict';
-
-    var WPSM_Admin = {
-
-        init: function () {
-            this.initCharCounters();
-            this.initTabs();
-            this.initMediaUploader();
-            this.initSchemaTypeChange();
-            this.initSchemaRepeater();
-            this.initSerpPreview();
-        },
-
-        /**
-         * Karakter Sayacı
-         * Renk kodları:
-         * - Yeşil: <= 80% (önerilen aralık)
-         * - Sarı: 80-100% (uyarı)
-         * - Kırmızı: > 100% (aşıldı)
-         */
-        initCharCounters: function () {
-            var self = this;
-
-            $('.wpsm-char-counter').each(function () {
-                var $counter = $(this);
-                var targetId = $counter.data('target');
-                var maxChars = parseInt($counter.data('max'), 10);
-                var $input = $('#' + targetId);
-
-                if (!$input.length) return;
-
-                // İlk yükleme
-                self.updateCharCounter($input, $counter, maxChars);
-
-                // Input değiştiğinde güncelle
-                $input.on('input keyup', function () {
-                    self.updateCharCounter($(this), $counter, maxChars);
-                });
-            });
-        },
-
-        updateCharCounter: function ($input, $counter, maxChars) {
-            var currentLength = $input.val().length;
-            var $countSpan = $counter.find('.wpsm-char-count');
-
-            $countSpan.text(currentLength);
-            $counter.removeClass('wpsm-char-green wpsm-char-yellow wpsm-char-red');
-
-            var percentage = (currentLength / maxChars) * 100;
-
-            if (percentage <= 80) {
-                $counter.addClass('wpsm-char-green');
-            } else if (percentage <= 100) {
-                $counter.addClass('wpsm-char-yellow');
-            } else {
-                $counter.addClass('wpsm-char-red');
+    /**
+     * Cache'i yükle
+     */
+    private function load_cache() {
+        if ( null === self::$cache ) {
+            self::$cache = get_option( self::OPTION_NAME, array() );
+            if ( empty( self::$cache ) ) {
+                self::$cache = Class_Installer::get_defaults();
             }
-        },
-
-        /**
-         * Tab Geçişleri
-         */
-        initTabs: function () {
-            $(document).on('click', '.wpsm-tab-btn', function (e) {
-                e.preventDefault();
-                var tabId = $(this).data('tab');
-
-                $('.wpsm-tab-btn').removeClass('active');
-                $(this).addClass('active');
-
-                $('.wpsm-tab-panel').removeClass('active');
-                $('#wpsm-tab-' + tabId).addClass('active');
-            });
-        },
-
-        /**
-         * Media Uploader (wp.media)
-         */
-        initMediaUploader: function () {
-            var mediaFrame;
-
-            $(document).on('click', '.wpsm-media-upload-btn', function (e) {
-                e.preventDefault();
-
-                var $wrapper = $(this).closest('.wpsm-media-upload-wrapper');
-                var $input = $wrapper.find('input[type="hidden"]');
-                var $preview = $wrapper.find('.wpsm-media-preview img');
-                var $previewWrap = $wrapper.find('.wpsm-media-preview');
-                var $removeBtn = $wrapper.find('.wpsm-media-remove-btn');
-
-                if (mediaFrame) {
-                    mediaFrame.open();
-                    return;
-                }
-
-                mediaFrame = wp.media({
-                    title: wpsmAdmin.i18n.selectImage || 'Görsel Seç',
-                    button: { text: wpsmAdmin.i18n.useImage || 'Kullan' },
-                    multiple: false,
-                    library: { type: 'image' }
-                });
-
-                mediaFrame.on('select', function () {
-                    var attachment = mediaFrame.state().get('selection').first().toJSON();
-                    var imageUrl = attachment.sizes && attachment.sizes.medium
-                        ? attachment.sizes.medium.url
-                        : attachment.url;
-
-                    $input.val(imageUrl);
-                    $preview.attr('src', imageUrl);
-                    $previewWrap.show();
-                    $removeBtn.show();
-                });
-
-                mediaFrame.open();
-            });
-
-            // Görsel kaldır
-            $(document).on('click', '.wpsm-media-remove-btn', function (e) {
-                e.preventDefault();
-                var $wrapper = $(this).closest('.wpsm-media-upload-wrapper');
-                $wrapper.find('input[type="hidden"]').val('');
-                $wrapper.find('.wpsm-media-preview').hide();
-                $(this).hide();
-            });
-        },
-
-        /**
-         * Schema Tipi Değişimi (AJAX)
-         */
-        initSchemaTypeChange: function () {
-            $('#wpsm-schema-type').on('change', function () {
-                var schemaType = $(this).val();
-                var $fieldsWrapper = $('#wpsm-schema-fields');
-                var $dynamicFields = $fieldsWrapper.find('.wpsm-schema-dynamic-fields');
-                var $loader = $fieldsWrapper.find('.wpsm-schema-loader');
-
-                if (schemaType === 'none' || schemaType === '') {
-                    $dynamicFields.empty().hide();
-                    return;
-                }
-
-                $loader.show();
-
-                $.ajax({
-                    url: wpsmAdmin.ajaxUrl,
-                    type: 'POST',
-                    data: {
-                        action: 'wpsm_load_schema_fields',
-                        schema_type: schemaType,
-                        nonce: wpsmAdmin.nonce
-                    },
-                    success: function (response) {
-                        $loader.hide();
-                        if (response.success) {
-                            $dynamicFields.html(response.data.html).show();
-                        }
-                    },
-                    error: function () {
-                        $loader.hide();
-                        $dynamicFields.html('<p class="wpsm-error">Bağlantı hatası.</p>').show();
-                    }
-                });
-            });
-        },
-
-        /**
-         * Schema Repeater (FAQ, HowTo)
-         */
-        initSchemaRepeater: function () {
-            $(document).on('click', '.wpsm-schema-add-item', function (e) {
-                e.preventDefault();
-                var $container = $(this).prev('.wpsm-schema-repeater');
-                var type = $(this).data('type');
-                var index = $container.find('.wpsm-schema-repeater-item').length;
-                // Dinamik HTML ekleme...
-            });
-
-            $(document).on('click', '.wpsm-schema-remove-item', function (e) {
-                e.preventDefault();
-                $(this).closest('.wpsm-schema-repeater-item').remove();
-            });
-        },
-
-        /**
-         * SERP Önizleme
-         */
-        initSerpPreview: function () {
-            $('#wpsm-title').on('input keyup', function () {
-                var value = $(this).val();
-                $('#wpsm-serp-title-preview').text(
-                    value || $(this).attr('placeholder') || 'Sayfa Başlığı'
-                );
-            });
-
-            $('#wpsm-description').on('input keyup', function () {
-                var value = $(this).val();
-                $('#wpsm-serp-desc-preview').text(
-                    value || 'Meta açıklamanız burada görünecek...'
-                );
-            });
         }
-    };
+    }
 
-    $(document).ready(function () {
-        if ($('#wpsm-seo-metabox').length) {
-            WPSM_Admin.init();
+    /**
+     * Belirli bir ayar değerini döndür
+     *
+     * @param string $key     Ayar anahtarı
+     * @param mixed  $default Varsayılan değer
+     * @return mixed
+     */
+    public function get( $key, $default = null ) {
+        $this->load_cache();
+
+        if ( isset( self::$cache[ $key ] ) ) {
+            return self::$cache[ $key ];
         }
-    });
 
-})(jQuery);`,
+        $defaults = Class_Installer::get_defaults();
+        if ( isset( $defaults[ $key ] ) ) {
+            return $defaults[ $key ];
+        }
+
+        return $default;
+    }
+
+    /**
+     * Belirli bir ayarı kaydet
+     *
+     * @param string $key   Ayar anahtarı
+     * @param mixed  $value Ayar değeri
+     * @return bool
+     */
+    public function set( $key, $value ) {
+        $this->load_cache();
+        self::$cache[ $key ] = $this->sanitize_value( $key, $value );
+        return update_option( self::OPTION_NAME, self::$cache );
+    }
+
+    /**
+     * Tüm ayarları döndür
+     *
+     * @return array
+     */
+    public function all() {
+        $this->load_cache();
+        $defaults = Class_Installer::get_defaults();
+        return wp_parse_args( self::$cache, $defaults );
+    }
+
+    /**
+     * Birden fazla ayarı güncelle
+     *
+     * @param array $data Güncellenecek ayarlar
+     * @return bool
+     */
+    public function update( $data ) {
+        if ( ! is_array( $data ) ) {
+            return false;
+        }
+
+        $this->load_cache();
+
+        foreach ( $data as $key => $value ) {
+            self::$cache[ $key ] = $this->sanitize_value( $key, $value );
+        }
+
+        do_action( 'wpsm_before_settings_update', $data, self::$cache );
+        $result = update_option( self::OPTION_NAME, self::$cache );
+        do_action( 'wpsm_after_settings_update', $data, $result );
+
+        return $result;
+    }
+
+    /**
+     * Değeri sanitize et
+     *
+     * @param string $key   Ayar anahtarı
+     * @param mixed  $value Ayar değeri
+     * @return mixed
+     */
+    private function sanitize_value( $key, $value ) {
+        if ( ! isset( self::$sanitize_callbacks[ $key ] ) ) {
+            return sanitize_text_field( $value );
+        }
+
+        $callback = self::$sanitize_callbacks[ $key ];
+
+        switch ( $callback ) {
+            case 'boolean':
+                return (bool) $value;
+
+            case 'intval':
+                return intval( $value );
+
+            case 'array_sanitize':
+                if ( ! is_array( $value ) ) {
+                    return array();
+                }
+                return array_map( 'sanitize_text_field', $value );
+
+            case 'wp_kses_post':
+                return wp_kses_post( $value );
+
+            default:
+                if ( is_callable( $callback ) ) {
+                    return call_user_func( $callback, $value );
+                }
+                return sanitize_text_field( $value );
+        }
+    }
+
+    /**
+     * Cache'i temizle
+     */
+    public function clear_cache() {
+        self::$cache = null;
+    }
+
+    /**
+     * Cache'i yeniden yükle
+     *
+     * @return array
+     */
+    public function refresh() {
+        $this->clear_cache();
+        $this->load_cache();
+        return self::$cache;
+    }
+
+    /**
+     * Ayar var mı kontrol et
+     *
+     * @param string $key
+     * @return bool
+     */
+    public function has( $key ) {
+        $this->load_cache();
+        return isset( self::$cache[ $key ] );
+    }
+
+    /**
+     * Tüm ayarları sıfırla
+     *
+     * @return bool
+     */
+    public function reset() {
+        $defaults = Class_Installer::get_defaults();
+        self::$cache = $defaults;
+        return update_option( self::OPTION_NAME, $defaults );
+    }
+
+    /**
+     * Ayarları dışa aktar (JSON)
+     *
+     * @return string
+     */
+    public function export() {
+        return wp_json_encode( $this->all(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE );
+    }
+
+    /**
+     * Ayarları içe aktar (JSON)
+     *
+     * @param string $json
+     * @return bool|array
+     */
+    public function import( $json ) {
+        $data = json_decode( $json, true );
+        if ( ! is_array( $data ) ) {
+            return false;
+        }
+
+        $defaults = Class_Installer::get_defaults();
+        $sanitized = array();
+
+        foreach ( $data as $key => $value ) {
+            if ( array_key_exists( $key, $defaults ) ) {
+                $sanitized[ $key ] = $this->sanitize_value( $key, $value );
+            }
+        }
+
+        if ( empty( $sanitized ) ) {
+            return false;
+        }
+
+        $this->update( $sanitized );
+        return $sanitized;
+    }
+}`,
   },
   {
-    id: 'css',
-    name: 'admin.css',
-    path: 'assets/css/admin.css',
-    description: 'Metabox CSS - Tab yapısı, form alanları, karakter sayacı, SERP önizleme',
-    language: 'css',
-    code: `/**
- * WP SEO Master - Admin CSS
+    id: 'i18n',
+    name: 'class-i18n.php',
+    path: 'includes/class-i18n.php',
+    description: 'Çoklu dil desteği - Text domain, .mo/.po dosya yönetimi',
+    language: 'php',
+    code: `<?php
+/**
+ * Uluslararasılaştırma (i18n) Sınıfı
  *
- * Metabox stilleri:
- * - Tab yapısı
- * - Form alanları
- * - Karakter sayacı renkleri
- * - Media uploader
- * - Schema alanları
- * - SERP önizleme
+ * Eklenti dil dosyalarını yükler.
+ * Text domain: wp-seo-master
+ *
+ * Kullanım:
+ * - __('Metin', 'wp-seo-master')
+ * - _e('Metin', 'wp-seo-master')
+ * - esc_html__('Metin', 'wp-seo-master')
+ * - _n('tekil', 'çoğul', $count, 'wp-seo-master')
+ *
+ * @package WPSM
+ * @since 1.0.0
  */
 
-/* TAB NAVIGATION */
-.wpsm-tabs-nav {
-    display: flex;
-    border-bottom: 1px solid #dcdcde;
-    background: #f6f7f7;
+namespace WPSM;
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
 }
 
-.wpsm-tab-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 10px 16px;
-    border: none;
-    background: transparent;
-    color: #50575e;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.2s ease;
-}
+class Class_I18n {
 
-.wpsm-tab-btn:hover {
-    color: #1d2327;
-    background: rgba(0, 0, 0, 0.02);
-}
+    /**
+     * Text domain
+     */
+    const TEXT_DOMAIN = 'wp-seo-master';
 
-.wpsm-tab-btn.active {
-    color: #2271b1;
-    border-bottom-color: #2271b1;
-    background: #fff;
-}
+    /**
+     * Dil dosyaları dizini
+     */
+    const LANGUAGES_DIR = 'languages';
 
-/* TAB CONTENT */
-.wpsm-tabs-content {
-    padding: 16px 20px;
-    background: #fff;
-}
+    /**
+     * Yüklendi mi
+     */
+    private static $loaded = false;
 
-.wpsm-tab-panel {
-    display: none;
-}
+    /**
+     * Plugin text domain'ini yükle
+     *
+     * WordPress'in init veya plugins_loaded hook'unda çağrılır.
+     *
+     * Dosya yapısı:
+     * - wp-seo-master-tr_TR.po
+     * - wp-seo-master-tr_TR.mo
+     * - wp-seo-master-en_US.po
+     * - wp-seo-master-en_US.mo
+     *
+     * @return bool
+     */
+    public function load_plugin_textdomain() {
+        // Zaten yüklendiyse tekrar yükleme
+        if ( self::$loaded ) {
+            return true;
+        }
 
-.wpsm-tab-panel.active {
-    display: block;
-}
+        $locale = determine_locale();
 
-/* FIELDS */
-.wpsm-field-group {
-    margin-bottom: 20px;
-}
+        /**
+         * Locale filtresi
+         *
+         * @param string $locale WordPress locale
+         */
+        $locale = apply_filters( 'plugin_locale', $locale, self::TEXT_DOMAIN );
 
-.wpsm-field-label {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-weight: 600;
-    font-size: 13px;
-    margin-bottom: 6px;
-}
+        // /wp-content/languages/plugins/ dizininden yükle (öncelikli)
+        $mofile = WP_LANG_DIR . '/plugins/' . self::TEXT_DOMAIN . '-' . $locale . '.mo';
 
-.wpsm-input,
-.wpsm-textarea,
-.wpsm-select {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid #8c8f94;
-    border-radius: 4px;
-    font-size: 13px;
-}
+        if ( load_textdomain( self::TEXT_DOMAIN, $mofile ) ) {
+            self::$loaded = true;
+            return true;
+        }
 
-.wpsm-input:focus,
-.wpsm-textarea:focus {
-    border-color: #2271b1;
-    box-shadow: 0 0 0 1px #2271b1;
-}
+        // Eklenti /languages/ dizininden yükle
+        $result = load_plugin_textdomain(
+            self::TEXT_DOMAIN,
+            false,
+            dirname( WPSM_BASENAME ) . '/' . self::LANGUAGES_DIR
+        );
 
-/* CHARACTER COUNTER */
-.wpsm-char-counter {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 2px 8px;
-    border-radius: 10px;
-}
+        if ( $result ) {
+            self::$loaded = true;
+        }
 
-.wpsm-char-green {
-    color: #00a32a;
-    background: #edfaef;
-}
+        return $result;
+    }
 
-.wpsm-char-yellow {
-    color: #996800;
-    background: #fcf9e8;
-}
+    /**
+     * Text domain'i döndür
+     *
+     * @return string
+     */
+    public function get_text_domain() {
+        return self::TEXT_DOMAIN;
+    }
 
-.wpsm-char-red {
-    color: #d63638;
-    background: #fcf0f1;
-}
+    /**
+     * Dil dosyaları dizinini döndür
+     *
+     * @return string Tam yol
+     */
+    public function get_languages_dir() {
+        return WPSM_PATH . self::LANGUAGES_DIR;
+    }
 
-/* SERP PREVIEW */
-.wpsm-serp-preview {
-    margin-top: 16px;
-    padding: 16px;
-    background: #f6f7f7;
-    border: 1px solid #dcdcde;
-    border-radius: 6px;
-    font-family: Arial, sans-serif;
-}
+    /**
+     * Mevcut locale'i döndür
+     *
+     * @return string
+     */
+    public function get_locale() {
+        return determine_locale();
+    }
 
-.wpsm-serp-title {
-    font-size: 18px;
-    color: #1a0dab;
-    margin-bottom: 4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
+    /**
+     * Text domain yüklü mü
+     *
+     * @return bool
+     */
+    public function is_loaded() {
+        return self::$loaded;
+    }
 
-.wpsm-serp-url {
-    font-size: 13px;
-    color: #006621;
-    margin-bottom: 4px;
-}
+    /**
+     * Çeviri durumunu döndür
+     *
+     * @return array
+     */
+    public function get_translations() {
+        $translations = array(
+            'tr_TR' => array(
+                'name'    => 'Türkçe',
+                'native'  => 'Türkçe',
+                'status'  => 'complete',
+                'version' => '1.0.0',
+            ),
+            'en_US' => array(
+                'name'    => 'English',
+                'native'  => 'English (US)',
+                'status'  => 'complete',
+                'version' => '1.0.0',
+            ),
+        );
 
-.wpsm-serp-desc {
-    font-size: 13px;
-    color: #4d5156;
-    line-height: 1.4;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
+        return apply_filters( 'wpsm_translations', $translations );
+    }
 
-/* CHECKBOX GROUP */
-.wpsm-checkbox-label {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 8px 12px;
-    border: 1px solid #dcdcde;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-bottom: 8px;
-}
-
-.wpsm-checkbox-label:hover {
-    background: #f6f7f7;
-}
-
-/* MEDIA UPLOADER */
-.wpsm-media-preview {
-    width: 120px;
-    height: 80px;
-    border: 1px solid #dcdcde;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.wpsm-media-preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-/* SCHEMA FIELDS */
-.wpsm-schema-fields-wrapper {
-    margin-top: 16px;
-    padding: 16px;
-    background: #f6f7f7;
-    border: 1px solid #dcdcde;
-    border-radius: 6px;
-}
-
-.wpsm-schema-repeater-item {
-    padding: 14px;
-    margin-bottom: 10px;
-    background: #fff;
-    border: 1px solid #dcdcde;
-    border-radius: 4px;
+    /**
+     * Belirli bir dil mevcut mu
+     *
+     * @param string $locale Dil kodu (örn: tr_TR)
+     * @return bool
+     */
+    public function translation_exists( $locale ) {
+        $mo_file = $this->get_languages_dir() . '/' . self::TEXT_DOMAIN . '-' . $locale . '.mo';
+        return file_exists( $mo_file );
+    }
 }`,
   },
 ]
@@ -848,7 +670,6 @@ export default function CodeViewer() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Basit syntax highlighting
   const highlightCode = (code: string, language: string) => {
     let highlighted = code
       .replace(/&/g, '&amp;')
@@ -864,20 +685,6 @@ export default function CodeViewer() {
         .replace(/\b(class|function|private|public|protected|static|return|new|if|else|foreach|for|while|namespace|use|define|require_once|array|true|false|null|self|const|isset|echo|exit|switch|case|break|default)\b/g, '<span class="text-purple-400 font-medium">$1</span>')
         .replace(/(\$[a-zA-Z_]\w*)/g, '<span class="text-blue-300">$1</span>')
         .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, "'<span class=\"text-green-300\">$1</span>'")
-    } else if (language === 'javascript') {
-      highlighted = highlighted
-        .replace(/\/\/.*$/gm, '<span class="text-gray-500 italic">$&</span>')
-        .replace(/\/\*\*[\s\S]*?\*\//gm, '<span class="text-gray-500 italic">$&</span>')
-        .replace(/\/\*[\s\S]*?\*\//gm, '<span class="text-gray-500 italic">$&</span>')
-        .replace(/\b(var|let|const|function|return|if|else|for|while|this|new|typeof|instanceof|true|false|null|undefined)\b/g, '<span class="text-purple-400 font-medium">$1</span>')
-        .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, "'<span class=\"text-green-300\">$1</span>'")
-        .replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, '"<span class="text-green-300">$1</span>"')
-    } else if (language === 'css') {
-      highlighted = highlighted
-        .replace(/\/\*[\s\S]*?\*\//gm, '<span class="text-gray-500 italic">$&</span>')
-        .replace(/(\.[\w-]+)/g, '<span class="text-yellow-300">$1</span>')
-        .replace(/(#[\da-fA-F]{3,8})/g, '<span class="text-orange-300">$1</span>')
-        .replace(/(\d+(?:\.\d+)?(?:px|em|rem|%|vh|vw|s|ms))/g, '<span class="text-blue-300">$1</span>')
     }
 
     return highlighted
@@ -892,11 +699,11 @@ export default function CodeViewer() {
             KAYNAK KOD
           </span>
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            Metabox Dosyaları
+            Kurulum & Ayar Yönetimi
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
-            Post editör metabox'u için 4 dosya: PHP sınıfı, template, JavaScript ve CSS.
-            Tab yapısı, karakter sayacı, media uploader, AJAX schema alanları.
+            Eklenti kurulumu, ayar yönetimi ve çoklu dil desteği için 3 temel dosya.
+            Migration altyapısı, static cache, sanitize callback sistemi.
           </p>
         </div>
 
@@ -950,7 +757,6 @@ export default function CodeViewer() {
 
         {/* Code Block */}
         <div className="bg-gray-900/80 border border-white/5 rounded-2xl overflow-hidden">
-          {/* Code Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-white/[0.02]">
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 rounded-full bg-red-500/80" />
@@ -961,7 +767,6 @@ export default function CodeViewer() {
             <span className="text-xs text-gray-600 uppercase">{currentFile.language}</span>
           </div>
 
-          {/* Code Content */}
           <div className="overflow-x-auto p-4 max-h-[600px] overflow-y-auto">
             <pre className="text-sm leading-relaxed">
               <code
@@ -975,7 +780,7 @@ export default function CodeViewer() {
         </div>
 
         {/* Download Links */}
-        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
           {files.map((file) => (
             <a
               key={file.id}
@@ -988,7 +793,7 @@ export default function CodeViewer() {
                 <p className="text-sm font-medium text-white group-hover:text-purple-300 transition-colors">
                   {file.name}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">{file.language.toUpperCase()}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{file.path}</p>
               </div>
               <svg className="w-5 h-5 text-gray-500 group-hover:text-purple-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -998,24 +803,134 @@ export default function CodeViewer() {
         </div>
 
         {/* Features Summary */}
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center text-white mb-4">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">Installer</h3>
+            <ul className="space-y-2 text-sm text-gray-400">
+              <li className="flex items-start">
+                <span className="text-green-400 mr-2">✓</span>
+                Varsayılan ayarlar kaydı
+              </li>
+              <li className="flex items-start">
+                <span className="text-green-400 mr-2">✓</span>
+                DB version migration
+              </li>
+              <li className="flex items-start">
+                <span className="text-green-400 mr-2">✓</span>
+                Cron & transient temizliği
+              </li>
+              <li className="flex items-start">
+                <span className="text-green-400 mr-2">✓</span>
+                Rewrite flush
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center text-white mb-4">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">Options</h3>
+            <ul className="space-y-2 text-sm text-gray-400">
+              <li className="flex items-start">
+                <span className="text-blue-400 mr-2">✓</span>
+                get/set/all/update API
+              </li>
+              <li className="flex items-start">
+                <span className="text-blue-400 mr-2">✓</span>
+                Static cache (tek sorgu)
+              </li>
+              <li className="flex items-start">
+                <span className="text-blue-400 mr-2">✓</span>
+                Sanitize callbacks
+              </li>
+              <li className="flex items-start">
+                <span className="text-blue-400 mr-2">✓</span>
+                Import/Export (JSON)
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center text-white mb-4">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">i18n</h3>
+            <ul className="space-y-2 text-sm text-gray-400">
+              <li className="flex items-start">
+                <span className="text-purple-400 mr-2">✓</span>
+                Text domain: wp-seo-master
+              </li>
+              <li className="flex items-start">
+                <span className="text-purple-400 mr-2">✓</span>
+                .mo/.po dosya yönetimi
+              </li>
+              <li className="flex items-start">
+                <span className="text-purple-400 mr-2">✓</span>
+                Çift dizin desteği
+              </li>
+              <li className="flex items-start">
+                <span className="text-purple-400 mr-2">✓</span>
+                Locale filtre desteği
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        {/* Default Settings Table */}
         <div className="mt-12 p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
-          <h3 className="text-lg font-bold text-white mb-4">Metabox Özellikleri</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { title: '4 Sekme', desc: 'İçerik, Sosyal, Şema, Gelişmiş' },
-              { title: 'Karakter Sayacı', desc: 'Title: 60, Desc: 160 (renk kodlu)' },
-              { title: 'Media Uploader', desc: 'wp.media ile OG/Twitter görsel seçimi' },
-              { title: 'AJAX Schema', desc: 'Tip seçilince dinamik alan yükleme' },
-              { title: 'SERP Önizleme', desc: 'Gerçek zamanlı Google sonucu preview' },
-              { title: 'Nonce + Yetki', desc: 'Güvenli form kaydetme' },
-              { title: 'REST API', desc: 'Gutenberg uyumlu post meta kaydı' },
-              { title: 'Sanitization', desc: 'Tüm girdiler sanitize edilir' },
-            ].map((item, i) => (
-              <div key={i} className="p-3 bg-white/[0.02] border border-white/5 rounded-lg">
-                <p className="text-sm font-medium text-purple-300">{item.title}</p>
-                <p className="text-xs text-gray-500 mt-1">{item.desc}</p>
-              </div>
-            ))}
+          <h3 className="text-lg font-bold text-white mb-4">Varsayılan Ayarlar</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="text-left py-3 px-4 text-gray-400 font-medium">Ayar</th>
+                  <th className="text-left py-3 px-4 text-gray-400 font-medium">Varsayılan Değer</th>
+                  <th className="text-left py-3 px-4 text-gray-400 font-medium">Tip</th>
+                </tr>
+              </thead>
+              <tbody className="text-gray-300">
+                {[
+                  ['title_separator', '|', 'string'],
+                  ['enable_sitemap', 'true', 'boolean'],
+                  ['enable_schema', 'true', 'boolean'],
+                  ['enable_opengraph', 'true', 'boolean'],
+                  ['enable_twitter', 'true', 'boolean'],
+                  ['enable_breadcrumbs', 'true', 'boolean'],
+                  ['default_schema_type', 'Article', 'string'],
+                  ['twitter_site', "''", 'string'],
+                  ['facebook_app_id', "''", 'string'],
+                  ['sitemap_post_types', "['post', 'page']", 'array'],
+                  ['sitemap_posts_per_page', '1000', 'int'],
+                  ['breadcrumb_separator', '»', 'string'],
+                ].map(([key, value, type], i) => (
+                  <tr key={i} className="border-b border-white/5">
+                    <td className="py-2 px-4 font-mono text-xs text-purple-300">{key}</td>
+                    <td className="py-2 px-4 font-mono text-xs text-green-300">{value}</td>
+                    <td className="py-2 px-4">
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        type === 'boolean' ? 'bg-yellow-500/10 text-yellow-400' :
+                        type === 'array' ? 'bg-blue-500/10 text-blue-400' :
+                        type === 'int' ? 'bg-orange-500/10 text-orange-400' :
+                        'bg-gray-500/10 text-gray-400'
+                      }`}>
+                        {type}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

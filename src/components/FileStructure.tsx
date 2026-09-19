@@ -37,9 +37,9 @@ const fileTree = [
         children: [
           { name: 'class-plugin.php', type: 'file', description: 'Singleton, hook yükleyici', icon: '⚙️' },
           { name: 'class-autoloader.php', type: 'file', description: 'PSR-4 autoloader', icon: '📦' },
-          { name: 'class-installer.php', type: 'file', description: 'Aktivasyon/deaktivasyon', icon: '🔧' },
-          { name: 'class-options.php', type: 'file', description: 'Ayar yönetimi', icon: '⚡' },
-          { name: 'class-i18n.php', type: 'file', description: 'Çoklu dil desteği', icon: '🌐' },
+          { name: 'class-installer.php', type: 'file', description: 'Aktivasyon, migration, DB versiyon', icon: '🔧' },
+          { name: 'class-options.php', type: 'file', description: 'get/set/all/update, static cache', icon: '⚡' },
+          { name: 'class-i18n.php', type: 'file', description: 'Text domain, .mo/.po yönetimi', icon: '🌐' },
           {
             name: 'Admin/',
             type: 'folder',

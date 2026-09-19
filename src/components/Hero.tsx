@@ -38,7 +38,8 @@ export default function Hero() {
 
         <p className="text-base text-gray-500 mb-10 max-w-2xl mx-auto">
           Meta etiketleri, Open Graph, Twitter Cards, Schema.org markup, XML Sitemap, 
-          içerik analizi ve daha fazlası. WPCS uyumlu, translation-ready.
+          içerik analizi, kurulum & migration altyapısı, ayar yönetimi ve daha fazlası. 
+          WPCS uyumlu, translation-ready, static cache destekli.
         </p>
 
         {/* CTA Buttons */}
