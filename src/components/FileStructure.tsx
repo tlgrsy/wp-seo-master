@@ -92,8 +92,8 @@ const fileTree = [
             type: 'folder',
             level: 2,
             children: [
-              { name: 'class-sitemap-generator.php', type: 'file', description: 'Sitemap oluşturucu', icon: '🗺️' },
-              { name: 'class-sitemap-index.php', type: 'file', description: 'Sitemap index', icon: '📑' },
+              { name: 'class-sitemap-generator.php', type: 'file', description: 'XML sitemap, rewrite rules, cache, görsel', icon: '🗺️' },
+              { name: 'class-sitemap-index.php', type: 'file', description: 'Sitemap index, alt sitemap listesi', icon: '📑' },
             ],
           },
           {

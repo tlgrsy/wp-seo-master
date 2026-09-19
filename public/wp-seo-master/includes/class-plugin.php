@@ -223,6 +223,10 @@ class Class_Plugin {
         // Sitemap
         add_action( 'init', array( $this->frontend_modules['sitemap_generator'], 'register_rewrite_rules' ) );
         add_action( 'template_redirect', array( $this->frontend_modules['sitemap_generator'], 'render_sitemap' ) );
+
+        // Sitemap cache temizleme (post/taxonomy değiştiğinde)
+        add_action( 'save_post', array( $this->frontend_modules['sitemap_generator'], 'clear_cache_on_save' ) );
+        add_action( 'edited_term', array( $this->frontend_modules['sitemap_generator'], 'clear_cache' ) );
     }
 
     /**

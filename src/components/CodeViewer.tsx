@@ -2,6 +2,801 @@ import { useState } from 'react'
 
 const files = [
   {
+    id: 'sitemap-generator',
+    name: 'class-sitemap-generator.php',
+    path: 'includes/Sitemap/class-sitemap-generator.php',
+    description: 'XML Sitemap oluşturucu - rewrite rules, cache, görsel sitemap',
+    language: 'php',
+    code: `<?php
+/**
+ * Sitemap Generator Sınıfı
+ *
+ * XML sitemap dosyalarını oluşturur.
+ * /sitemap.xml ve alt sitemap'ler için endpoint'ler.
+ *
+ * @package WPSM\\Sitemap
+ * @since 1.0.0
+ */
+
+namespace WPSM\\Sitemap;
+
+if ( ! defined( 'ABSPATH' ) ) { exit; }
+
+class Class_Sitemap_Generator {
+
+    private $options;
+    const MAX_URLS = 1000;
+    const CACHE_DURATION = 12 * HOUR_IN_SECONDS;
+
+    public function __construct( $options ) {
+        $this->options = $options;
+    }
+
+    /**
+     * Rewrite kurallarını kaydet (init hook)
+     */
+    public function register_rewrite_rules() {
+        $enabled = $this->options->get( 'enable_sitemap', true );
+        if ( ! $enabled ) return;
+
+        // Ana sitemap index
+        add_rewrite_rule(
+            'sitemap_index\\.xml$',
+            'index.php?wpsm_sitemap=index',
+            'top'
+        );
+
+        // Alt sitemap'ler
+        add_rewrite_rule(
+            '([^/]+)-sitemap\\.xml$',
+            'index.php?wpsm_sitemap=1&wpsm_sitemap_type=$matches[1]',
+            'top'
+        );
+
+        // Query var'ları
+        add_rewrite_tag( '%wpsm_sitemap%', '([^&]+)' );
+        add_rewrite_tag( '%wpsm_sitemap_type%', '([^&]+)' );
+    }
+
+    /**
+     * Sitemap'i render et (template_redirect hook)
+     */
+    public function render_sitemap() {
+        $sitemap = get_query_var( 'wpsm_sitemap' );
+        if ( empty( $sitemap ) ) return;
+
+        $enabled = $this->options->get( 'enable_sitemap', true );
+        if ( ! $enabled ) return;
+
+        $sitemap_type = get_query_var( 'wpsm_sitemap_type' );
+
+        // Ana index
+        if ( 'index' === $sitemap ) {
+            $this->render_sitemap_index();
+            exit;
+        }
+
+        // Alt sitemap
+        if ( ! empty( $sitemap_type ) ) {
+            $this->render_sub_sitemap( $sitemap_type );
+            exit;
+        }
+    }
+
+    /**
+     * Sitemap index render
+     */
+    private function render_sitemap_index() {
+        $cache_key = 'wpsm_sitemap_index';
+        $cached = get_transient( $cache_key );
+
+        if ( false !== $cached ) {
+            $this->output_xml( $cached );
+            return;
+        }
+
+        $index = new Class_Sitemap_Index( $this->options );
+        $xml = $index->generate();
+
+        set_transient( $cache_key, $xml, self::CACHE_DURATION );
+        $this->output_xml( $xml );
+    }
+
+    /**
+     * Alt sitemap render
+     */
+    private function render_sub_sitemap( $type ) {
+        $cache_key = 'wpsm_sitemap_' . $type;
+        $cached = get_transient( $cache_key );
+
+        if ( false !== $cached ) {
+            $this->output_xml( $cached );
+            return;
+        }
+
+        $xml = $this->generate_sitemap( $type );
+
+        if ( ! empty( $xml ) ) {
+            set_transient( $cache_key, $xml, self::CACHE_DURATION );
+            $this->output_xml( $xml );
+        } else {
+            status_header( 404 );
+            echo 'Sitemap not found';
+            exit;
+        }
+    }
+
+    /**
+     * Sitemap XML oluştur
+     */
+    public function generate_sitemap( $type ) {
+        $post_types = $this->options->get( 'sitemap_post_types', array( 'post', 'page' ) );
+        $taxonomies = $this->options->get( 'sitemap_taxonomies', array( 'category' ) );
+
+        switch ( $type ) {
+            case 'post':
+                return $this->generate_post_sitemap( 'post' );
+            case 'page':
+                return $this->generate_post_sitemap( 'page' );
+            case 'category':
+                return $this->generate_taxonomy_sitemap( 'category' );
+            case 'post_tag':
+                return $this->generate_taxonomy_sitemap( 'post_tag' );
+            case 'author':
+                return $this->generate_author_sitemap();
+            default:
+                if ( in_array( $type, $post_types, true ) ) {
+                    return $this->generate_post_sitemap( $type );
+                }
+                if ( in_array( $type, $taxonomies, true ) ) {
+                    return $this->generate_taxonomy_sitemap( $type );
+                }
+                return '';
+        }
+    }
+
+    /**
+     * Post sitemap oluştur
+     */
+    private function generate_post_sitemap( $post_type ) {
+        $posts_per_page = $this->options->get( 'sitemap_posts_per_page', self::MAX_URLS );
+
+        $args = array(
+            'post_type'      => $post_type,
+            'post_status'    => 'publish',
+            'posts_per_page' => min( $posts_per_page, self::MAX_URLS ),
+            'orderby'        => 'modified',
+            'order'          => 'DESC',
+            'meta_query'     => array(
+                'relation' => 'OR',
+                array( 'key' => '_wpsm_robots', 'compare' => 'NOT EXISTS' ),
+                array( 'key' => '_wpsm_robots', 'value' => 'noindex', 'compare' => 'NOT LIKE' ),
+            ),
+        );
+
+        $posts = get_posts( $args );
+        if ( empty( $posts ) ) return '';
+
+        $xml = $this->get_xml_header();
+
+        foreach ( $posts as $post ) {
+            // noindex kontrolü
+            $robots = get_post_meta( $post->ID, '_wpsm_robots', true );
+            if ( is_array( $robots ) && in_array( 'noindex', $robots, true ) ) {
+                continue;
+            }
+
+            $url = array(
+                'loc'        => get_permalink( $post->ID ),
+                'lastmod'    => mysql2date( 'Y-m-d\\TH:i:sP', $post->post_modified_gmt ),
+                'changefreq' => $this->get_changefreq( $post ),
+                'priority'   => $this->get_priority( $post, $post_type ),
+            );
+
+            // Görsel sitemap
+            $images = $this->get_post_images( $post );
+            if ( ! empty( $images ) ) {
+                $url['images'] = $images;
+            }
+
+            $xml .= $this->build_url_node( $url );
+        }
+
+        $xml .= $this->get_xml_footer();
+        return $xml;
+    }
+
+    /**
+     * Taksonomi sitemap oluştur
+     */
+    private function generate_taxonomy_sitemap( $taxonomy ) {
+        $terms = get_terms( array(
+            'taxonomy'   => $taxonomy,
+            'hide_empty' => true,
+            'number'     => self::MAX_URLS,
+        ) );
+
+        if ( empty( $terms ) || is_wp_error( $terms ) ) return '';
+
+        $xml = $this->get_xml_header();
+
+        foreach ( $terms as $term ) {
+            $url = array(
+                'loc'        => get_term_link( $term ),
+                'lastmod'    => $this->get_term_lastmod( $term, $taxonomy ),
+                'changefreq' => 'weekly',
+                'priority'   => '0.5',
+            );
+            $xml .= $this->build_url_node( $url );
+        }
+
+        $xml .= $this->get_xml_footer();
+        return $xml;
+    }
+
+    /**
+     * Yazar sitemap oluştur
+     */
+    private function generate_author_sitemap() {
+        $authors = get_users( array(
+            'has_published_posts' => true,
+            'number'              => self::MAX_URLS,
+        ) );
+
+        if ( empty( $authors ) ) return '';
+
+        $xml = $this->get_xml_header();
+
+        foreach ( $authors as $author ) {
+            $url = array(
+                'loc'        => get_author_posts_url( $author->ID ),
+                'lastmod'    => $this->get_author_lastmod( $author->ID ),
+                'changefreq' => 'weekly',
+                'priority'   => '0.3',
+            );
+            $xml .= $this->build_url_node( $url );
+        }
+
+        $xml .= $this->get_xml_footer();
+        return $xml;
+    }
+
+    private function get_xml_header() {
+        $header  = '<?xml version="1.0" encoding="UTF-8"?>' . "\\n";
+        $header .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"';
+        $header .= ' xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"';
+        $header .= '>' . "\\n";
+        return $header;
+    }
+
+    private function get_xml_footer() {
+        return '</urlset>';
+    }
+
+    private function build_url_node( $url ) {
+        $xml = "\\t<url>\\n";
+        $xml .= "\\t\\t<loc>" . esc_url( $url['loc'] ) . "</loc>\\n";
+
+        if ( ! empty( $url['lastmod'] ) ) {
+            $xml .= "\\t\\t<lastmod>" . esc_html( $url['lastmod'] ) . "</lastmod>\\n";
+        }
+        if ( ! empty( $url['changefreq'] ) ) {
+            $xml .= "\\t\\t<changefreq>" . esc_html( $url['changefreq'] ) . "</changefreq>\\n";
+        }
+        if ( ! empty( $url['priority'] ) ) {
+            $xml .= "\\t\\t<priority>" . esc_html( $url['priority'] ) . "</priority>\\n";
+        }
+
+        // Görsel sitemap
+        if ( ! empty( $url['images'] ) ) {
+            foreach ( $url['images'] as $image ) {
+                $xml .= "\\t\\t<image:image>\\n";
+                $xml .= "\\t\\t\\t<image:loc>" . esc_url( $image['loc'] ) . "</image:loc>\\n";
+                if ( ! empty( $image['caption'] ) ) {
+                    $xml .= "\\t\\t\\t<image:caption>" . esc_html( $image['caption'] ) . "</image:caption>\\n";
+                }
+                if ( ! empty( $image['title'] ) ) {
+                    $xml .= "\\t\\t\\t<image:title>" . esc_html( $image['title'] ) . "</image:title>\\n";
+                }
+                $xml .= "\\t\\t</image:image>\\n";
+            }
+        }
+
+        $xml .= "\\t</url>\\n";
+        return $xml;
+    }
+
+    private function get_post_images( $post ) {
+        $images = array();
+
+        // Featured image
+        $thumbnail_id = get_post_thumbnail_id( $post->ID );
+        if ( $thumbnail_id ) {
+            $src = wp_get_attachment_image_src( $thumbnail_id, 'full' );
+            if ( $src ) {
+                $alt = get_post_meta( $thumbnail_id, '_wp_attachment_image_alt', true );
+                $images[] = array(
+                    'loc'     => $src[0],
+                    'caption' => $alt,
+                    'title'   => get_the_title( $thumbnail_id ),
+                );
+            }
+        }
+
+        // İçerikteki görseller (max 5)
+        if ( count( $images ) < 5 ) {
+            preg_match_all( '/<img[^>]+src=["\\']([^"\\']+)["\\']/', $post->post_content, $matches );
+            if ( ! empty( $matches[1] ) ) {
+                $content_images = array_slice( $matches[1], 0, 5 - count( $images ) );
+                foreach ( $content_images as $img_url ) {
+                    $images[] = array( 'loc' => $img_url, 'caption' => '', 'title' => '' );
+                }
+            }
+        }
+
+        return $images;
+    }
+
+    private function get_changefreq( $post ) {
+        $days_old = ( time() - strtotime( $post->post_date_gmt ) ) / DAY_IN_SECONDS;
+        if ( $days_old < 1 ) return 'hourly';
+        if ( $days_old < 7 ) return 'daily';
+        if ( $days_old < 30 ) return 'weekly';
+        if ( $days_old < 365 ) return 'monthly';
+        return 'yearly';
+    }
+
+    private function get_priority( $post, $post_type ) {
+        if ( (int) get_option( 'page_on_front' ) === $post->ID ) return '1.0';
+        if ( 'page' === $post_type ) return '0.6';
+        if ( is_sticky( $post->ID ) ) return '0.9';
+        return '0.7';
+    }
+
+    private function get_term_lastmod( $term, $taxonomy ) {
+        $latest = get_posts( array(
+            'post_type' => 'post', 'post_status' => 'publish',
+            'posts_per_page' => 1, 'orderby' => 'modified', 'order' => 'DESC',
+            'tax_query' => array( array( 'taxonomy' => $taxonomy, 'terms' => $term->term_id ) ),
+        ) );
+        if ( ! empty( $latest ) ) {
+            return mysql2date( 'Y-m-d\\TH:i:sP', $latest[0]->post_modified_gmt );
+        }
+        return mysql2date( 'Y-m-d\\TH:i:sP', current_time( 'mysql', true ) );
+    }
+
+    private function get_author_lastmod( $author_id ) {
+        $latest = get_posts( array(
+            'post_type' => 'post', 'post_status' => 'publish',
+            'posts_per_page' => 1, 'orderby' => 'modified', 'order' => 'DESC',
+            'author' => $author_id,
+        ) );
+        if ( ! empty( $latest ) ) {
+            return mysql2date( 'Y-m-d\\TH:i:sP', $latest[0]->post_modified_gmt );
+        }
+        return mysql2date( 'Y-m-d\\TH:i:sP', current_time( 'mysql', true ) );
+    }
+
+    private function output_xml( $xml ) {
+        header( 'Content-Type: application/xml; charset=UTF-8' );
+        header( 'X-Robots-Tag: noindex, follow' );
+        echo $xml; // phpcs:ignore
+        exit;
+    }
+
+    /**
+     * Cache temizle
+     */
+    public function clear_cache( $type = '' ) {
+        if ( empty( $type ) ) {
+            delete_transient( 'wpsm_sitemap_index' );
+            foreach ( array( 'post', 'page', 'category', 'post_tag', 'author' ) as $t ) {
+                delete_transient( 'wpsm_sitemap_' . $t );
+            }
+        } else {
+            delete_transient( 'wpsm_sitemap_' . $type );
+            delete_transient( 'wpsm_sitemap_index' );
+        }
+        do_action( 'wpsm_sitemap_cache_cleared', $type );
+    }
+
+    /**
+     * Post kaydında cache temizle
+     */
+    public function clear_cache_on_save( $post_id ) {
+        $post_type = get_post_type( $post_id );
+        $this->clear_cache( $post_type );
+        $taxonomies = get_object_taxonomies( $post_type );
+        foreach ( $taxonomies as $taxonomy ) {
+            $this->clear_cache( $taxonomy );
+        }
+    }
+
+    /**
+     * Sitemap URL'lerini döndür
+     */
+    public function get_sitemap_urls() {
+        $urls = array();
+        $urls['index'] = home_url( '/sitemap_index.xml' );
+
+        $post_types = $this->options->get( 'sitemap_post_types', array( 'post', 'page' ) );
+        $taxonomies = $this->options->get( 'sitemap_taxonomies', array( 'category' ) );
+
+        foreach ( $post_types as $pt ) {
+            $urls[ $pt ] = home_url( '/' . $pt . '-sitemap.xml' );
+        }
+        foreach ( $taxonomies as $tax ) {
+            $urls[ $tax ] = home_url( '/' . $tax . '-sitemap.xml' );
+        }
+        if ( $this->options->get( 'enable_author_sitemap', false ) ) {
+            $urls['author'] = home_url( '/author-sitemap.xml' );
+        }
+
+        return $urls;
+    }
+}`,
+  },
+  {
+    id: 'sitemap-index',
+    name: 'class-sitemap-index.php',
+    path: 'includes/Sitemap/class-sitemap-index.php',
+    description: 'Sitemap index - <sitemapindex> yapısı, alt sitemap listesi',
+    language: 'php',
+    code: `<?php
+/**
+ * Sitemap Index Sınıfı
+ *
+ * Ana sitemap index dosyasını oluşturur.
+ * Tüm alt sitemap'leri listeler.
+ *
+ * @package WPSM\\Sitemap
+ * @since 1.0.0
+ */
+
+namespace WPSM\\Sitemap;
+
+if ( ! defined( 'ABSPATH' ) ) { exit; }
+
+class Class_Sitemap_Index {
+
+    private $options;
+
+    public function __construct( $options ) {
+        $this->options = $options;
+    }
+
+    /**
+     * Sitemap index XML oluştur
+     *
+     * @return string XML
+     */
+    public function generate() {
+        $xml  = '<?xml version="1.0" encoding="UTF-8"?>' . "\\n";
+        $xml .= '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\\n";
+
+        // Post type sitemap'leri
+        $post_types = $this->options->get( 'sitemap_post_types', array( 'post', 'page' ) );
+        foreach ( $post_types as $post_type ) {
+            $xml .= $this->build_sitemap_node(
+                home_url( '/' . $post_type . '-sitemap.xml' ),
+                $this->get_last_modified( $post_type, 'post_type' )
+            );
+        }
+
+        // Taksonomi sitemap'leri
+        $taxonomies = $this->options->get( 'sitemap_taxonomies', array( 'category' ) );
+        foreach ( $taxonomies as $taxonomy ) {
+            $xml .= $this->build_sitemap_node(
+                home_url( '/' . $taxonomy . '-sitemap.xml' ),
+                $this->get_last_modified( $taxonomy, 'taxonomy' )
+            );
+        }
+
+        // Yazar sitemap (opsiyonel)
+        if ( $this->options->get( 'enable_author_sitemap', false ) ) {
+            $xml .= $this->build_sitemap_node(
+                home_url( '/author-sitemap.xml' ),
+                $this->get_author_last_modified()
+            );
+        }
+
+        $xml .= '</sitemapindex>';
+
+        return $xml;
+    }
+
+    /**
+     * Sitemap node oluştur
+     */
+    private function build_sitemap_node( $loc, $lastmod = '' ) {
+        $xml  = "\\t<sitemap>\\n";
+        $xml .= "\\t\\t<loc>" . esc_url( $loc ) . "</loc>\\n";
+        if ( ! empty( $lastmod ) ) {
+            $xml .= "\\t\\t<lastmod>" . esc_html( $lastmod ) . "</lastmod>\\n";
+        }
+        $xml .= "\\t</sitemap>\\n";
+        return $xml;
+    }
+
+    /**
+     * Son değişiklik tarihini döndür
+     */
+    private function get_last_modified( $type, $scope ) {
+        if ( 'post_type' === $scope ) {
+            $latest = get_posts( array(
+                'post_type' => $type, 'post_status' => 'publish',
+                'posts_per_page' => 1, 'orderby' => 'modified',
+                'order' => 'DESC', 'fields' => 'ids',
+            ) );
+            if ( ! empty( $latest ) ) {
+                $post = get_post( $latest[0] );
+                return mysql2date( 'Y-m-d\\TH:i:sP', $post->post_modified_gmt );
+            }
+        }
+
+        if ( 'taxonomy' === $scope ) {
+            $terms = get_terms( array(
+                'taxonomy' => $type, 'hide_empty' => true,
+                'number' => 1, 'orderby' => 'count', 'order' => 'DESC',
+            ) );
+            if ( ! empty( $terms ) && ! is_wp_error( $terms ) ) {
+                $latest = get_posts( array(
+                    'post_type' => 'post', 'post_status' => 'publish',
+                    'posts_per_page' => 1, 'orderby' => 'modified', 'order' => 'DESC',
+                    'tax_query' => array( array( 'taxonomy' => $type, 'terms' => $terms[0]->term_id ) ),
+                ) );
+                if ( ! empty( $latest ) ) {
+                    return mysql2date( 'Y-m-d\\TH:i:sP', $latest[0]->post_modified_gmt );
+                }
+            }
+        }
+
+        return mysql2date( 'Y-m-d\\TH:i:sP', current_time( 'mysql', true ) );
+    }
+
+    private function get_author_last_modified() {
+        $latest = get_posts( array(
+            'post_type' => 'post', 'post_status' => 'publish',
+            'posts_per_page' => 1, 'orderby' => 'modified', 'order' => 'DESC',
+        ) );
+        if ( ! empty( $latest ) ) {
+            return mysql2date( 'Y-m-d\\TH:i:sP', $latest[0]->post_modified_gmt );
+        }
+        return mysql2date( 'Y-m-d\\TH:i:sP', current_time( 'mysql', true ) );
+    }
+}`,
+  },
+  {
+    id: 'sitemap-view',
+    name: 'settings-sitemap.php',
+    path: 'includes/Admin/views/settings-sitemap.php',
+    description: 'Sitemap admin sayfası - durum, URL listesi, cache temizleme',
+    language: 'php',
+    code: `<?php
+/**
+ * Sitemap Ayarları Sayfası
+ *
+ * Sitemap durumu, URL listesi, cache temizleme.
+ *
+ * @package WPSM\\Admin\\Views
+ * @since 1.0.0
+ */
+
+if ( ! defined( 'ABSPATH' ) ) { exit; }
+
+if ( ! isset( $options ) ) {
+    $options = new \\WPSM\\Class_Options();
+}
+
+$sitemap_generator = new \\WPSM\\Sitemap\\Class_Sitemap_Generator( $options );
+
+// Mevcut değerler
+$enable_sitemap         = $options->get( 'enable_sitemap', true );
+$sitemap_post_types     = $options->get( 'sitemap_post_types', array( 'post', 'page' ) );
+$sitemap_taxonomies     = $options->get( 'sitemap_taxonomies', array( 'category' ) );
+$sitemap_posts_per_page = $options->get( 'sitemap_posts_per_page', 1000 );
+$enable_author_sitemap  = $options->get( 'enable_author_sitemap', false );
+
+// Kaydetme işlemi
+$message = '';
+if ( isset( $_POST['wpsm_save_sitemap'] ) ) {
+    if ( ! isset( $_POST['wpsm_nonce'] ) || ! wp_verify_nonce( $_POST['wpsm_nonce'], 'wpsm_save_settings' ) ) {
+        $message = '<div class="notice notice-error"><p>' . esc_html__( 'Doğrulama başarısız.', 'wp-seo-master' ) . '</p></div>';
+    } elseif ( ! current_user_can( 'manage_options' ) ) {
+        $message = '<div class="notice notice-error"><p>' . esc_html__( 'Yetkiniz yok.', 'wp-seo-master' ) . '</p></div>';
+    } else {
+        $data = array();
+        if ( isset( $_POST['wpsm_settings'] ) && is_array( $_POST['wpsm_settings'] ) ) {
+            foreach ( $_POST['wpsm_settings'] as $key => $value ) {
+                $key = sanitize_text_field( $key );
+                switch ( $key ) {
+                    case 'enable_sitemap':
+                    case 'enable_author_sitemap':
+                        $data[ $key ] = (bool) $value;
+                        break;
+                    case 'sitemap_posts_per_page':
+                        $data[ $key ] = intval( $value );
+                        break;
+                    case 'sitemap_post_types':
+                    case 'sitemap_taxonomies':
+                        if ( is_array( $value ) ) {
+                            $data[ $key ] = array_map( 'sanitize_text_field', $value );
+                        }
+                        break;
+                }
+            }
+            // Checkbox'lar
+            if ( ! isset( $_POST['wpsm_settings']['enable_sitemap'] ) ) {
+                $data['enable_sitemap'] = false;
+            }
+            if ( ! isset( $_POST['wpsm_settings']['enable_author_sitemap'] ) ) {
+                $data['enable_author_sitemap'] = false;
+            }
+
+            $options->update( $data );
+            $sitemap_generator->clear_cache();
+            flush_rewrite_rules();
+            $message = '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Ayarlar kaydedildi.', 'wp-seo-master' ) . '</p></div>';
+        }
+    }
+}
+
+// Cache temizleme
+if ( isset( $_POST['wpsm_clear_sitemap_cache'] ) ) {
+    if ( isset( $_POST['wpsm_nonce'] ) && wp_verify_nonce( $_POST['wpsm_nonce'], 'wpsm_save_settings' ) ) {
+        if ( current_user_can( 'manage_options' ) ) {
+            $sitemap_generator->clear_cache();
+            $message = '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Cache temizlendi.', 'wp-seo-master' ) . '</p></div>';
+        }
+    }
+}
+
+$sitemap_urls = $sitemap_generator->get_sitemap_urls();
+?>
+
+<div class="wrap">
+    <h1>
+        <span class="dashicons dashicons-list-view"></span>
+        <?php esc_html_e( 'Sitemap Ayarları', 'wp-seo-master' ); ?>
+    </h1>
+
+    <?php echo $message; // phpcs:ignore ?>
+
+    <!-- Tab Navigation -->
+    <nav class="nav-tab-wrapper">
+        <a href="?page=wp-seo-master-settings&tab=general" class="nav-tab">Genel</a>
+        <a href="?page=wp-seo-master-settings&tab=schema" class="nav-tab">Şema</a>
+        <a href="?page=wp-seo-master-settings&tab=social" class="nav-tab">Sosyal Medya</a>
+        <a href="?page=wp-seo-master-settings&tab=sitemap" class="nav-tab nav-tab-active">Sitemap</a>
+    </nav>
+
+    <form method="post" action="">
+        <?php wp_nonce_field( 'wpsm_save_settings', 'wpsm_nonce' ); ?>
+
+        <!-- Sitemap Durumu -->
+        <div class="postbox">
+            <h2 class="hndle"><span><?php esc_html_e( 'Sitemap Durumu', 'wp-seo-master' ); ?></span></h2>
+            <div class="inside">
+                <table class="form-table">
+                    <tr>
+                        <th><label><?php esc_html_e( 'Sitemap Etkin', 'wp-seo-master' ); ?></label></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="wpsm_settings[enable_sitemap]" value="1" <?php checked( $enable_sitemap ); ?> />
+                                <?php esc_html_e( 'XML Sitemap\\'i etkinleştir', 'wp-seo-master' ); ?>
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Sitemap URL', 'wp-seo-master' ); ?></th>
+                        <td>
+                            <code><?php echo esc_url( home_url( '/sitemap_index.xml' ) ); ?></code>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Dahil Edilecek İçerikler -->
+        <div class="postbox">
+            <h2 class="hndle"><span><?php esc_html_e( 'Dahil Edilecek İçerikler', 'wp-seo-master' ); ?></span></h2>
+            <div class="inside">
+                <table class="form-table">
+                    <tr>
+                        <th><?php esc_html_e( 'Post Türleri', 'wp-seo-master' ); ?></th>
+                        <td>
+                            <?php
+                            $post_types = get_post_types( array( 'public' => true ), 'objects' );
+                            foreach ( $post_types as $pt ) :
+                                if ( 'attachment' === $pt->name ) continue;
+                            ?>
+                                <label style="display:block;margin-bottom:5px;">
+                                    <input type="checkbox" name="wpsm_settings[sitemap_post_types][]" value="<?php echo esc_attr( $pt->name ); ?>" <?php checked( in_array( $pt->name, $sitemap_post_types, true ) ); ?> />
+                                    <?php echo esc_html( $pt->label ); ?>
+                                </label>
+                            <?php endforeach; ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Taksonomiler', 'wp-seo-master' ); ?></th>
+                        <td>
+                            <?php
+                            $taxonomies = get_taxonomies( array( 'public' => true ), 'objects' );
+                            foreach ( $taxonomies as $tax ) :
+                                if ( 'post_format' === $tax->name ) continue;
+                            ?>
+                                <label style="display:block;margin-bottom:5px;">
+                                    <input type="checkbox" name="wpsm_settings[sitemap_taxonomies][]" value="<?php echo esc_attr( $tax->name ); ?>" <?php checked( in_array( $tax->name, $sitemap_taxonomies, true ) ); ?> />
+                                    <?php echo esc_html( $tax->label ); ?>
+                                </label>
+                            <?php endforeach; ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Yazar Sitemap', 'wp-seo-master' ); ?></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="wpsm_settings[enable_author_sitemap]" value="1" <?php checked( $enable_author_sitemap ); ?> />
+                                <?php esc_html_e( 'Yazar sayfalarını ekle', 'wp-seo-master' ); ?>
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label><?php esc_html_e( 'Maksimum URL', 'wp-seo-master' ); ?></label></th>
+                        <td>
+                            <input type="number" name="wpsm_settings[sitemap_posts_per_page]" value="<?php echo esc_attr( $sitemap_posts_per_page ); ?>" class="small-text" min="1" max="50000" />
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Sitemap URL Listesi -->
+        <div class="postbox">
+            <h2 class="hndle"><span><?php esc_html_e( 'Sitemap URL Listesi', 'wp-seo-master' ); ?></span></h2>
+            <div class="inside">
+                <table class="widefat striped">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Tip', 'wp-seo-master' ); ?></th>
+                            <th><?php esc_html_e( 'URL', 'wp-seo-master' ); ?></th>
+                            <th><?php esc_html_e( 'İşlem', 'wp-seo-master' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $sitemap_urls as $type => $url ) : ?>
+                            <tr>
+                                <td><strong><?php echo esc_html( ucfirst( $type ) ); ?></strong></td>
+                                <td><code><?php echo esc_url( $url ); ?></code></td>
+                                <td>
+                                    <a href="<?php echo esc_url( $url ); ?>" target="_blank" class="button button-small">Görüntüle</a>
+                                    <a href="https://www.google.com/webmasters/tools/ping?sitemap=<?php echo esc_url( rawurlencode( $url ) ); ?>" target="_blank" class="button button-small">Google\\'a Gönder</a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Cache -->
+        <div class="postbox">
+            <h2 class="hndle"><span><?php esc_html_e( 'Cache Yönetimi', 'wp-seo-master' ); ?></span></h2>
+            <div class="inside">
+                <p><?php esc_html_e( 'Sitemap 12 saat cache\\'lenir.', 'wp-seo-master' ); ?></p>
+                <button type="submit" name="wpsm_clear_sitemap_cache" value="1" class="button button-secondary">
+                    <?php esc_html_e( 'Cache\\'i Temizle', 'wp-seo-master' ); ?>
+                </button>
+            </div>
+        </div>
+
+        <p class="submit">
+            <input type="submit" name="wpsm_save_sitemap" class="button-primary" value="<?php esc_attr_e( 'Kaydet', 'wp-seo-master' ); ?>" />
+        </p>
+    </form>
+</div>`,
+  },
+  {
     id: 'faq',
     name: 'class-faq-schema.php',
     path: 'includes/Schema/class-faq-schema.php',
