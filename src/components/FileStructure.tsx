@@ -8,6 +8,29 @@ const fileTree = [
       { name: 'uninstall.php', type: 'file', description: 'Temizlik (silme işlemi)', icon: '🗑️' },
       { name: 'readme.txt', type: 'file', description: 'WordPress.org readme', icon: '📄' },
       {
+        name: 'assets/',
+        type: 'folder',
+        level: 1,
+        children: [
+          {
+            name: 'js/',
+            type: 'folder',
+            level: 2,
+            children: [
+              { name: 'admin.js', type: 'file', description: 'Metabox JS (karakter sayacı, tab, media, AJAX)', icon: '⚡' },
+            ],
+          },
+          {
+            name: 'css/',
+            type: 'folder',
+            level: 2,
+            children: [
+              { name: 'admin.css', type: 'file', description: 'Metabox stilleri (tab, form, SERP preview)', icon: '🎨' },
+            ],
+          },
+        ],
+      },
+      {
         name: 'includes/',
         type: 'folder',
         level: 1,
@@ -24,8 +47,17 @@ const fileTree = [
             children: [
               { name: 'class-admin-menu.php', type: 'file', description: 'Admin menü kaydı', icon: '📋' },
               { name: 'class-settings.php', type: 'file', description: 'Ayarlar sayfası', icon: '⚙️' },
-              { name: 'class-metabox.php', type: 'file', description: 'Yazı düzenleme metabox', icon: '📝' },
-              { name: 'views/', type: 'folder', description: 'PHP template dosyaları', icon: '👁️', level: 3 },
+              { name: 'class-metabox.php', type: 'file', description: 'SEO Metabox (4 sekme, AJAX, REST API)', icon: '📝' },
+              {
+                name: 'views/',
+                type: 'folder',
+                description: 'PHP template dosyaları',
+                icon: '👁️',
+                level: 3,
+                children: [
+                  { name: 'metabox.php', type: 'file', description: 'Metabox HTML template', icon: '🖼️' },
+                ],
+              },
             ],
           },
           {
@@ -156,8 +188,8 @@ export default function FileStructure() {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8">
           {[
-            { label: 'Toplam Dosya', value: '25+' },
-            { label: 'Klasör', value: '8' },
+            { label: 'Toplam Dosya', value: '30+' },
+            { label: 'Klasör', value: '10' },
             { label: 'Namespace', value: '6' },
             { label: 'Schema Tipi', value: '6' },
           ].map((stat, i) => (

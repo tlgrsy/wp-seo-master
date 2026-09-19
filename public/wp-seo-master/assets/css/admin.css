@@ -1,0 +1,434 @@
+/**
+ * WP SEO Master - Admin CSS
+ *
+ * Metabox stilleri:
+ * - Tab yapısı
+ * - Form alanları
+ * - Karakter sayacı renkleri
+ * - Media uploader
+ * - Schema alanları
+ * - SERP önizleme
+ * - Checkbox'lar
+ *
+ * @package WPSM
+ * @since 1.0.0
+ */
+
+/* ============================================
+   WRAPPER
+   ============================================ */
+
+.wpsm-metabox-wrapper {
+    margin: -6px -12px -12px;
+}
+
+/* ============================================
+   TAB NAVIGATION
+   ============================================ */
+
+.wpsm-tabs-nav {
+    display: flex;
+    border-bottom: 1px solid #dcdcde;
+    background: #f6f7f7;
+    padding: 0;
+    margin: 0;
+}
+
+.wpsm-tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: #50575e;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+    margin-bottom: -1px;
+}
+
+.wpsm-tab-btn:hover {
+    color: #1d2327;
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.wpsm-tab-btn.active {
+    color: #2271b1;
+    border-bottom-color: #2271b1;
+    background: #fff;
+}
+
+.wpsm-tab-btn .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+/* ============================================
+   TAB CONTENT
+   ============================================ */
+
+.wpsm-tabs-content {
+    padding: 16px 20px;
+    background: #fff;
+}
+
+.wpsm-tab-panel {
+    display: none;
+}
+
+.wpsm-tab-panel.active {
+    display: block;
+}
+
+/* ============================================
+   FIELD GROUPS
+   ============================================ */
+
+.wpsm-field-group {
+    margin-bottom: 20px;
+}
+
+.wpsm-field-group:last-child {
+    margin-bottom: 0;
+}
+
+.wpsm-field-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 13px;
+    color: #1d2327;
+    margin-bottom: 6px;
+}
+
+.wpsm-field-desc {
+    font-size: 12px;
+    color: #646970;
+    margin-top: 4px;
+    font-style: italic;
+}
+
+.wpsm-input,
+.wpsm-textarea,
+.wpsm-select {
+    width: 100%;
+    max-width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #2c3338;
+    background: #fff;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.wpsm-input:focus,
+.wpsm-textarea:focus,
+.wpsm-select:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.wpsm-textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+.wpsm-select {
+    appearance: auto;
+}
+
+/* ============================================
+   CHARACTER COUNTER
+   ============================================ */
+
+.wpsm-char-counter {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+}
+
+.wpsm-char-gray {
+    color: #8c8f94;
+    background: #f0f0f1;
+}
+
+.wpsm-char-green {
+    color: #00a32a;
+    background: #edfaef;
+}
+
+.wpsm-char-yellow {
+    color: #996800;
+    background: #fcf9e8;
+}
+
+.wpsm-char-red {
+    color: #d63638;
+    background: #fcf0f1;
+}
+
+/* ============================================
+   SERP PREVIEW
+   ============================================ */
+
+.wpsm-serp-preview {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    font-family: Arial, sans-serif;
+}
+
+.wpsm-serp-title {
+    font-size: 18px;
+    color: #1a0dab;
+    line-height: 1.3;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wpsm-serp-url {
+    font-size: 13px;
+    color: #006621;
+    margin-bottom: 4px;
+}
+
+.wpsm-serp-desc {
+    font-size: 13px;
+    color: #4d5156;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* ============================================
+   SECTION HEADERS
+   ============================================ */
+
+.wpsm-section-header {
+    margin: 24px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #dcdcde;
+}
+
+.wpsm-section-header:first-child {
+    margin-top: 0;
+}
+
+.wpsm-section-header h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+    margin: 0;
+}
+
+/* ============================================
+   MEDIA UPLOADER
+   ============================================ */
+
+.wpsm-media-upload-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.wpsm-media-preview {
+    width: 120px;
+    height: 80px;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #f6f7f7;
+}
+
+.wpsm-media-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.wpsm-media-upload-btn {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+}
+
+.wpsm-media-upload-btn .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+/* ============================================
+   CHECKBOX GROUP
+   ============================================ */
+
+.wpsm-checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.wpsm-checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px 12px;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.wpsm-checkbox-label:hover {
+    background: #f6f7f7;
+    border-color: #8c8f94;
+}
+
+.wpsm-checkbox-label input[type="checkbox"] {
+    margin-top: 2px;
+}
+
+.wpsm-checkbox-text {
+    font-size: 13px;
+    color: #50575e;
+    line-height: 1.5;
+}
+
+.wpsm-checkbox-text strong {
+    color: #1d2327;
+}
+
+/* ============================================
+   SCHEMA FIELDS
+   ============================================ */
+
+.wpsm-schema-fields-wrapper {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+}
+
+.wpsm-schema-empty {
+    text-align: center;
+    padding: 20px;
+    color: #646970;
+}
+
+.wpsm-schema-empty p {
+    margin: 0;
+}
+
+.wpsm-schema-loader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    color: #646970;
+}
+
+.wpsm-schema-field {
+    margin-bottom: 14px;
+}
+
+.wpsm-schema-field:last-child {
+    margin-bottom: 0;
+}
+
+.wpsm-schema-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1d2327;
+    margin-bottom: 4px;
+}
+
+.wpsm-schema-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+/* Schema Repeater */
+.wpsm-schema-repeater {
+    margin-bottom: 12px;
+}
+
+.wpsm-schema-repeater-item {
+    padding: 14px;
+    margin-bottom: 10px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    position: relative;
+}
+
+.wpsm-schema-repeater-item .wpsm-schema-remove-item {
+    margin-top: 8px;
+    color: #d63638 !important;
+    border-color: #d63638 !important;
+}
+
+.wpsm-schema-repeater-item .wpsm-schema-remove-item:hover {
+    background: #fcf0f1 !important;
+}
+
+.wpsm-schema-add-item {
+    margin-top: 8px;
+}
+
+/* ============================================
+   ERROR/NOTICE MESSAGES
+   ============================================ */
+
+.wpsm-error {
+    color: #d63638;
+    padding: 8px 12px;
+    background: #fcf0f1;
+    border: 1px solid #d63638;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media screen and (max-width: 782px) {
+    .wpsm-tabs-nav {
+        flex-wrap: wrap;
+    }
+
+    .wpsm-tab-btn {
+        flex: 1;
+        justify-content: center;
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    .wpsm-schema-row {
+        grid-template-columns: 1fr;
+    }
+
+    .wpsm-media-upload-wrapper {
+        flex-direction: column;
+    }
+}
