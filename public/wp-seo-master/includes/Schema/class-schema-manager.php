@@ -248,6 +248,18 @@ class Class_Schema_Manager {
             case 'newsarticle':
                 return new Class_Article_Schema( $this->options, $type );
 
+            case 'faq':
+                return new Class_FAQ_Schema( $this->options );
+
+            case 'howto':
+                return new Class_HowTo_Schema( $this->options );
+
+            case 'product':
+                return new Class_Product_Schema( $this->options );
+
+            case 'localbusiness':
+                return new Class_Localbusiness_Schema( $this->options );
+
             case 'webpage':
                 // WebPage için basit şema
                 return $this;

@@ -2,17 +2,17 @@ import { useState } from 'react'
 
 const files = [
   {
-    id: 'manager',
-    name: 'class-schema-manager.php',
-    path: 'includes/Schema/class-schema-manager.php',
-    description: 'Schema yönetici - @graph yapısı, WebSite, Organization, BreadcrumbList',
+    id: 'faq',
+    name: 'class-faq-schema.php',
+    path: 'includes/Schema/class-faq-schema.php',
+    description: 'FAQPage şeması - Question[], acceptedAnswer: Answer',
     language: 'php',
     code: `<?php
 /**
- * Schema Manager Sınıfı
+ * FAQ Schema Sınıfı
  *
- * JSON-LD şema çıktılarını yönetir.
- * wp_head priority 10'da çalışır.
+ * FAQPage şemasını oluşturur.
+ * Soru-cevap çiftleri metabox'ta repeater olarak girilir.
  *
  * @package WPSM\\Schema
  * @since 1.0.0
@@ -22,455 +22,61 @@ namespace WPSM\\Schema;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-class Class_Schema_Manager {
+class Class_FAQ_Schema {
 
     private $options;
-    private $other_seo_active = false;
 
     public function __construct( $options ) {
         $this->options = $options;
-        $this->check_other_seo_plugins();
-    }
-
-    private function check_other_seo_plugins() {
-        $other_plugins = array(
-            'WPSEO_VERSION', 'AIOSEO_VERSION',
-            'RANK_MATH_VERSION', 'SEOPRESS_VERSION',
-        );
-        foreach ( $other_plugins as $constant ) {
-            if ( defined( $constant ) ) {
-                $this->other_seo_active = true;
-                break;
-            }
-        }
     }
 
     /**
-     * JSON-LD çıktısı ver (wp_head priority 10)
+     * FAQ şemasını döndür
+     *
+     * @param int $post_id Post ID
+     * @return array
      */
-    public function output_schema() {
-        if ( $this->other_seo_active ) return;
+    public function get_schema( $post_id ) {
+        $schema_data = get_post_meta( $post_id, '_wpsm_schema_data', true );
 
-        $enabled = $this->options->get( 'enable_schema', true );
-        if ( ! $enabled ) return;
-
-        $schema_data = $this->build_schema_graph();
-        if ( empty( $schema_data ) ) return;
-
-        echo '<script type="application/ld+json">' . "\\n";
-        echo wp_json_encode( $schema_data,
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
-        );
-        echo "\\n" . '</script>' . "\\n";
-    }
-
-    /**
-     * Schema @graph yapısını oluştur
-     */
-    private function build_schema_graph() {
-        $graph = array();
-
-        // WebSite şeması (her sayfada)
-        $graph[] = $this->get_website_schema();
-
-        // Organization şeması
-        $org_schema = $this->get_organization_schema();
-        if ( ! empty( $org_schema ) ) {
-            $graph[] = $org_schema;
+        if ( empty( $schema_data ) || ! is_array( $schema_data ) ) {
+            return array();
         }
 
-        // BreadcrumbList şeması
-        $breadcrumb_enabled = $this->options->get( 'enable_breadcrumbs', true );
-        if ( $breadcrumb_enabled ) {
-            $breadcrumb_class = new Class_Breadcrumb_Schema( $this->options );
-            $breadcrumb_schema = $breadcrumb_class->get_schema();
-            if ( ! empty( $breadcrumb_schema ) ) {
-                $graph[] = $breadcrumb_schema;
-            }
+        $questions = isset( $schema_data['questions'] ) ? $schema_data['questions'] : array();
+
+        if ( empty( $questions ) ) {
+            return array();
         }
 
-        // Singular sayfa için özel şema
-        if ( is_singular() ) {
-            $post_id = get_queried_object_id();
-            $schema_type = get_post_meta( $post_id, '_wpsm_schema_type', true );
+        $main_entity = array();
 
-            if ( empty( $schema_type ) || 'none' === $schema_type ) {
-                $schema_type = $this->get_default_schema_type();
+        foreach ( $questions as $q ) {
+            if ( empty( $q['question'] ) || empty( $q['answer'] ) ) {
+                continue;
             }
 
-            $schema_class = $this->get_schema_class( $schema_type );
-            if ( $schema_class ) {
-                $schema_data = $schema_class->get_schema( $post_id );
-                if ( ! empty( $schema_data ) ) {
-                    $graph[] = $schema_data;
-                }
-            }
-        }
-
-        $graph = apply_filters( 'wpsm_schema_graph', $graph );
-
-        if ( empty( $graph ) ) return array();
-
-        return array(
-            '@context' => 'https://schema.org',
-            '@graph'   => $graph,
-        );
-    }
-
-    /**
-     * WebSite şeması (SearchAction ile)
-     */
-    private function get_website_schema() {
-        return array(
-            '@type'       => 'WebSite',
-            '@id'         => home_url( '/#website' ),
-            'url'         => home_url( '/' ),
-            'name'        => get_bloginfo( 'name' ),
-            'description' => get_bloginfo( 'description' ),
-            'potentialAction' => array(
-                '@type'       => 'SearchAction',
-                'target'      => array(
-                    '@type'       => 'EntryPoint',
-                    'urlTemplate' => home_url( '/?s={search_term_string}' ),
+            $main_entity[] = array(
+                '@type'          => 'Question',
+                'name'           => $this->sanitize( $q['question'] ),
+                'acceptedAnswer' => array(
+                    '@type' => 'Answer',
+                    'text'  => wp_kses_post( $q['answer'] ),
                 ),
-                'query-input' => 'required name=search_term_string',
-            ),
-            'publisher' => array( '@id' => home_url( '/#organization' ) ),
-        );
-    }
-
-    /**
-     * Organization şeması (logo, sosyal profiller)
-     */
-    private function get_organization_schema() {
-        $schema = array(
-            '@type' => 'Organization',
-            '@id'   => home_url( '/#organization' ),
-            'name'  => get_bloginfo( 'name' ),
-            'url'   => home_url( '/' ),
-        );
-
-        // Logo
-        $logo_url = $this->get_site_logo_url();
-        if ( ! empty( $logo_url ) ) {
-            $schema['logo'] = array(
-                '@type' => 'ImageObject',
-                'url'   => $logo_url,
-            );
-            $logo_id = get_theme_mod( 'custom_logo' );
-            if ( $logo_id ) {
-                $meta = wp_get_attachment_metadata( $logo_id );
-                if ( $meta ) {
-                    $schema['logo']['width']  = $meta['width'];
-                    $schema['logo']['height'] = $meta['height'];
-                }
-            }
-        }
-
-        // Sosyal profiller
-        $profiles = $this->get_social_profiles();
-        if ( ! empty( $profiles ) ) {
-            $schema['sameAs'] = $profiles;
-        }
-
-        return $schema;
-    }
-
-    private function get_default_schema_type() {
-        if ( is_page() ) return 'WebPage';
-        return $this->options->get( 'default_schema_type', 'Article' );
-    }
-
-    private function get_schema_class( $type ) {
-        switch ( strtolower( $type ) ) {
-            case 'article':
-            case 'blogposting':
-            case 'newsarticle':
-                return new Class_Article_Schema( $this->options, $type );
-            case 'webpage':
-                return $this;
-            default:
-                return null;
-        }
-    }
-
-    public function get_schema( $post_id ) {
-        $post = get_post( $post_id );
-        if ( ! $post ) return array();
-
-        return array(
-            '@type'       => 'WebPage',
-            '@id'         => get_permalink( $post_id ) . '#webpage',
-            'url'         => get_permalink( $post_id ),
-            'name'        => get_the_title( $post_id ),
-            'description' => $this->get_post_description( $post_id ),
-            'publisher'   => array( '@id' => home_url( '/#organization' ) ),
-            'breadcrumb'  => array( '@id' => get_permalink( $post_id ) . '#breadcrumb' ),
-        );
-    }
-
-    private function get_site_logo_url() {
-        $logo_id = get_theme_mod( 'custom_logo' );
-        if ( $logo_id ) {
-            $url = wp_get_attachment_image_url( $logo_id, 'full' );
-            if ( $url ) return $url;
-        }
-        return $this->options->get( 'organization_logo', '' );
-    }
-
-    private function get_social_profiles() {
-        $profiles = array();
-        $keys = array( 'social_facebook', 'social_twitter', 'social_instagram',
-                       'social_linkedin', 'social_youtube', 'social_pinterest' );
-        foreach ( $keys as $key ) {
-            $url = $this->options->get( $key, '' );
-            if ( ! empty( $url ) ) $profiles[] = esc_url( $url );
-        }
-        return $profiles;
-    }
-
-    private function get_post_description( $post_id ) {
-        $desc = get_post_meta( $post_id, '_wpsm_description', true );
-        if ( empty( $desc ) ) {
-            $excerpt = get_the_excerpt( $post_id );
-            if ( ! empty( $excerpt ) ) {
-                $desc = wp_trim_words( $excerpt, 25, '...' );
-            }
-        }
-        return $desc;
-    }
-}`,
-  },
-  {
-    id: 'article',
-    name: 'class-article-schema.php',
-    path: 'includes/Schema/class-article-schema.php',
-    description: 'Article/BlogPosting/NewsArticle şeması - author, publisher, image',
-    language: 'php',
-    code: `<?php
-/**
- * Article Schema Sınıfı
- *
- * Article, BlogPosting, NewsArticle şemalarını oluşturur.
- *
- * @package WPSM\\Schema
- * @since 1.0.0
- */
-
-namespace WPSM\\Schema;
-
-if ( ! defined( 'ABSPATH' ) ) { exit; }
-
-class Class_Article_Schema {
-
-    private $options;
-    private $schema_type;
-
-    public function __construct( $options, $schema_type = 'Article' ) {
-        $this->options     = $options;
-        $this->schema_type = $schema_type;
-    }
-
-    /**
-     * Article şemasını döndür
-     */
-    public function get_schema( $post_id ) {
-        $post = get_post( $post_id );
-        if ( ! $post ) return array();
-
-        $schema = array(
-            '@type'            => $this->get_schema_type(),
-            '@id'              => get_permalink( $post_id ) . '#article',
-            'isPartOf'         => array( '@id' => get_permalink( $post_id ) . '#webpage' ),
-            'mainEntityOfPage' => array( '@id' => get_permalink( $post_id ) . '#webpage' ),
-            'headline'         => $this->sanitize( get_the_title( $post_id ) ),
-            'datePublished'    => get_the_date( 'c', $post_id ),
-            'dateModified'     => get_the_modified_date( 'c', $post_id ),
-        );
-
-        // Description
-        $desc = $this->get_post_description( $post_id );
-        if ( ! empty( $desc ) ) {
-            $schema['description'] = $desc;
-        }
-
-        // Author (Person)
-        $author = $this->get_author_schema( $post->post_author );
-        if ( ! empty( $author ) ) {
-            $schema['author'] = $author;
-        }
-
-        // Publisher (Organization)
-        $schema['publisher'] = array( '@id' => home_url( '/#organization' ) );
-
-        // Image
-        $image = $this->get_article_image( $post_id );
-        if ( ! empty( $image ) ) {
-            $schema['image'] = $image;
-            $schema['thumbnailUrl'] = $image['url'];
-        }
-
-        // Article section (kategori)
-        $categories = get_the_category( $post_id );
-        if ( ! empty( $categories ) ) {
-            $schema['articleSection'] = $this->sanitize( $categories[0]->name );
-        }
-
-        // Keywords (etiketler)
-        $tags = get_the_tags( $post_id );
-        if ( ! empty( $tags ) ) {
-            $keywords = array_map( function( $tag ) {
-                return $this->sanitize( $tag->name );
-            }, $tags );
-            $schema['keywords'] = implode( ', ', $keywords );
-        }
-
-        // Word count
-        $schema['wordCount'] = str_word_count(
-            wp_strip_all_tags( $post->post_content )
-        );
-
-        // Comment count
-        $schema['commentCount'] = intval( $post->comment_count );
-
-        // Breadcrumb
-        $schema['breadcrumb'] = array(
-            '@id' => get_permalink( $post_id ) . '#breadcrumb',
-        );
-
-        return apply_filters( 'wpsm_article_schema', $schema, $post_id );
-    }
-
-    private function get_schema_type() {
-        $allowed = array( 'Article', 'BlogPosting', 'NewsArticle' );
-        return in_array( $this->schema_type, $allowed, true )
-            ? $this->schema_type : 'Article';
-    }
-
-    /**
-     * Author (Person) şeması
-     */
-    private function get_author_schema( $author_id ) {
-        $author = get_userdata( $author_id );
-        if ( ! $author ) return array();
-
-        $schema = array(
-            '@type' => 'Person',
-            'name'  => $this->sanitize( $author->display_name ),
-        );
-
-        $author_url = get_author_posts_url( $author_id );
-        if ( ! empty( $author_url ) ) {
-            $schema['url'] = esc_url( $author_url );
-        }
-
-        $description = get_the_author_meta( 'description', $author_id );
-        if ( ! empty( $description ) ) {
-            $schema['description'] = $this->sanitize( $description );
-        }
-
-        $avatar_url = get_avatar_url( $author_id, array( 'size' => 200 ) );
-        if ( ! empty( $avatar_url ) ) {
-            $schema['image'] = array(
-                '@type' => 'ImageObject',
-                'url'   => esc_url( $avatar_url ),
             );
         }
 
-        // Sosyal profiller
-        $profiles = array();
-        $twitter = get_the_author_meta( 'twitter', $author_id );
-        if ( ! empty( $twitter ) ) {
-            $profiles[] = 'https://twitter.com/' . ltrim( $twitter, '@' );
-        }
-        $facebook = get_the_author_meta( 'facebook', $author_id );
-        if ( ! empty( $facebook ) ) {
-            if ( strpos( $facebook, 'http' ) !== 0 ) {
-                $facebook = 'https://facebook.com/' . $facebook;
-            }
-            $profiles[] = esc_url( $facebook );
-        }
-        if ( ! empty( $profiles ) ) {
-            $schema['sameAs'] = $profiles;
+        if ( empty( $main_entity ) ) {
+            return array();
         }
 
-        return $schema;
-    }
-
-    /**
-     * Makale görseli
-     * Öncelik: _wpsm_og_image > featured image > default_og_image
-     */
-    private function get_article_image( $post_id ) {
-        // Özel OG görseli
-        $og_image = get_post_meta( $post_id, '_wpsm_og_image', true );
-        if ( ! empty( $og_image ) ) {
-            return $this->build_image_object( $og_image );
-        }
-
-        // Featured image
-        $thumbnail_id = get_post_thumbnail_id( $post_id );
-        if ( $thumbnail_id ) {
-            $src = wp_get_attachment_image_src( $thumbnail_id, 'full' );
-            if ( $src ) {
-                $alt = get_post_meta( $thumbnail_id, '_wp_attachment_image_alt', true );
-                $image = array(
-                    '@type'  => 'ImageObject',
-                    'url'    => esc_url( $src[0] ),
-                    'width'  => $src[1],
-                    'height' => $src[2],
-                );
-                if ( ! empty( $alt ) ) {
-                    $image['caption'] = $this->sanitize( $alt );
-                }
-                return $image;
-            }
-        }
-
-        // Varsayılan
-        $default = $this->options->get( 'default_og_image', '' );
-        if ( ! empty( $default ) ) {
-            return $this->build_image_object( $default );
-        }
-
-        return array();
-    }
-
-    private function build_image_object( $url ) {
-        $image = array(
-            '@type' => 'ImageObject',
-            'url'   => esc_url( $url ),
+        $schema = array(
+            '@type'      => 'FAQPage',
+            '@id'        => get_permalink( $post_id ) . '#faq',
+            'mainEntity' => $main_entity,
         );
-        $attachment_id = attachment_url_to_postid( $url );
-        if ( $attachment_id ) {
-            $meta = wp_get_attachment_metadata( $attachment_id );
-            if ( $meta ) {
-                $image['width']  = $meta['width'];
-                $image['height'] = $meta['height'];
-            }
-            $alt = get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
-            if ( ! empty( $alt ) ) {
-                $image['caption'] = $this->sanitize( $alt );
-            }
-        }
-        return $image;
-    }
 
-    private function get_post_description( $post_id ) {
-        $desc = get_post_meta( $post_id, '_wpsm_description', true );
-        if ( empty( $desc ) ) {
-            $excerpt = get_the_excerpt( $post_id );
-            if ( ! empty( $excerpt ) ) {
-                $desc = wp_strip_all_tags( $excerpt );
-            }
-        }
-        if ( empty( $desc ) ) {
-            $post = get_post( $post_id );
-            if ( $post ) {
-                $desc = wp_trim_words( wp_strip_all_tags( $post->post_content ), 55, '...' );
-            }
-        }
-        return $this->sanitize( $desc );
+        return apply_filters( 'wpsm_faq_schema', $schema, $post_id );
     }
 
     private function sanitize( $string ) {
@@ -480,16 +86,17 @@ class Class_Article_Schema {
 }`,
   },
   {
-    id: 'breadcrumb',
-    name: 'class-breadcrumb-schema.php',
-    path: 'includes/Schema/class-breadcrumb-schema.php',
-    description: 'BreadcrumbList şeması - itemListElement, position, hiyerarşi',
+    id: 'howto',
+    name: 'class-howto-schema.php',
+    path: 'includes/Schema/class-howto-schema.php',
+    description: 'HowTo şeması - step[], supply, tool, totalTime',
     language: 'php',
     code: `<?php
 /**
- * Breadcrumb Schema Sınıfı
+ * HowTo Schema Sınıfı
  *
- * BreadcrumbList JSON-LD şemasını oluşturur.
+ * HowTo şemasını oluşturur.
+ * Adımlar metabox'ta repeater olarak girilir.
  *
  * @package WPSM\\Schema
  * @since 1.0.0
@@ -499,7 +106,7 @@ namespace WPSM\\Schema;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-class Class_Breadcrumb_Schema {
+class Class_HowTo_Schema {
 
     private $options;
 
@@ -508,192 +115,591 @@ class Class_Breadcrumb_Schema {
     }
 
     /**
-     * BreadcrumbList şemasını döndür
+     * HowTo şemasını döndür
+     *
+     * @param int $post_id Post ID
+     * @return array
      */
-    public function get_schema() {
-        $items = $this->get_breadcrumb_items();
-        if ( empty( $items ) ) return array();
+    public function get_schema( $post_id ) {
+        $schema_data = get_post_meta( $post_id, '_wpsm_schema_data', true );
+
+        if ( empty( $schema_data ) || ! is_array( $schema_data ) ) {
+            return array();
+        }
+
+        $steps = isset( $schema_data['steps'] ) ? $schema_data['steps'] : array();
+
+        if ( empty( $steps ) ) {
+            return array();
+        }
 
         $schema = array(
-            '@type'           => 'BreadcrumbList',
-            '@id'             => $this->get_current_url() . '#breadcrumb',
-            'itemListElement' => array(),
+            '@type'       => 'HowTo',
+            '@id'         => get_permalink( $post_id ) . '#howto',
+            'name'        => $this->sanitize( get_the_title( $post_id ) ),
+            'description' => $this->get_description( $post_id, $schema_data ),
         );
 
-        $position = 1;
-        foreach ( $items as $item ) {
-            $list_item = array(
-                '@type'    => 'ListItem',
-                'position' => $position,
-                'name'     => $this->sanitize( $item['name'] ),
-            );
-            if ( ! empty( $item['url'] ) ) {
-                $list_item['item'] = esc_url( $item['url'] );
-            }
-            $schema['itemListElement'][] = $list_item;
-            $position++;
+        // totalTime (ISO 8601 duration)
+        if ( ! empty( $schema_data['totalTime'] ) ) {
+            $schema['totalTime'] = sanitize_text_field( $schema_data['totalTime'] );
         }
 
-        return apply_filters( 'wpsm_breadcrumb_schema', $schema, $items );
+        // estimatedCost
+        if ( ! empty( $schema_data['estimatedCost'] ) ) {
+            $schema['estimatedCost'] = array(
+                '@type'    => 'MonetaryAmount',
+                'currency' => 'USD',
+                'value'    => sanitize_text_field( $schema_data['estimatedCost'] ),
+            );
+        }
+
+        // supply (malzemeler)
+        if ( ! empty( $schema_data['supply'] ) && is_array( $schema_data['supply'] ) ) {
+            $supply_list = array();
+            foreach ( $schema_data['supply'] as $supply_item ) {
+                if ( ! empty( $supply_item['name'] ) ) {
+                    $supply_list[] = array(
+                        '@type' => 'HowToSupply',
+                        'name'  => $this->sanitize( $supply_item['name'] ),
+                    );
+                }
+            }
+            if ( ! empty( $supply_list ) ) {
+                $schema['supply'] = $supply_list;
+            }
+        }
+
+        // tool (aletler)
+        if ( ! empty( $schema_data['tool'] ) && is_array( $schema_data['tool'] ) ) {
+            $tool_list = array();
+            foreach ( $schema_data['tool'] as $tool_item ) {
+                if ( ! empty( $tool_item['name'] ) ) {
+                    $tool_list[] = array(
+                        '@type' => 'HowToTool',
+                        'name'  => $this->sanitize( $tool_item['name'] ),
+                    );
+                }
+            }
+            if ( ! empty( $tool_list ) ) {
+                $schema['tool'] = $tool_list;
+            }
+        }
+
+        // step (adımlar)
+        $step_list = array();
+        foreach ( $steps as $step ) {
+            if ( empty( $step['name'] ) ) continue;
+
+            $step_schema = array(
+                '@type' => 'HowToStep',
+                'name'  => $this->sanitize( $step['name'] ),
+                'text'  => wp_kses_post( $step['text'] ?? '' ),
+            );
+
+            // step image
+            if ( ! empty( $step['image'] ) ) {
+                $step_schema['image'] = esc_url( $step['image'] );
+            }
+
+            // step url
+            if ( ! empty( $step['url'] ) ) {
+                $step_schema['url'] = esc_url( $step['url'] );
+            }
+
+            $step_list[] = $step_schema;
+        }
+
+        if ( ! empty( $step_list ) ) {
+            $schema['step'] = $step_list;
+        }
+
+        return apply_filters( 'wpsm_howto_schema', $schema, $post_id );
+    }
+
+    private function get_description( $post_id, $schema_data ) {
+        if ( ! empty( $schema_data['description'] ) ) {
+            return $this->sanitize( $schema_data['description'] );
+        }
+        $excerpt = get_the_excerpt( $post_id );
+        if ( ! empty( $excerpt ) ) {
+            return $this->sanitize( $excerpt );
+        }
+        $post = get_post( $post_id );
+        if ( $post ) {
+            return wp_trim_words( wp_strip_all_tags( $post->post_content ), 55, '...' );
+        }
+        return '';
+    }
+
+    private function sanitize( $string ) {
+        if ( empty( $string ) ) return '';
+        return sanitize_text_field( wp_strip_all_tags( $string ) );
+    }
+}`,
+  },
+  {
+    id: 'product',
+    name: 'class-product-schema.php',
+    path: 'includes/Schema/class-product-schema.php',
+    description: 'Product şeması - WooCommerce otomatik, manuel giriş, offers, rating',
+    language: 'php',
+    code: `<?php
+/**
+ * Product Schema Sınıfı
+ *
+ * Product şemasını oluşturur.
+ * WooCommerce varsa otomatik, yoksa manuel giriş.
+ *
+ * @package WPSM\\Schema
+ * @since 1.0.0
+ */
+
+namespace WPSM\\Schema;
+
+if ( ! defined( 'ABSPATH' ) ) { exit; }
+
+class Class_Product_Schema {
+
+    private $options;
+
+    public function __construct( $options ) {
+        $this->options = $options;
     }
 
     /**
-     * Breadcrumb öğelerini döndür
-     * Ana sayfa > kategori > alt kategori > yazı
+     * Product şemasını döndür
+     *
+     * @param int $post_id Post ID
+     * @return array
      */
-    private function get_breadcrumb_items() {
-        $items = array();
-
-        // Ana sayfa (her zaman ilk)
-        $home_text = $this->options->get( 'breadcrumb_home_text', 'Ana Sayfa' );
-        $items[] = array( 'name' => $home_text, 'url' => home_url( '/' ) );
-
-        // Singular sayfa
-        if ( is_singular() ) {
-            $post_id = get_queried_object_id();
-            $post = get_post( $post_id );
-            if ( ! $post ) return $items;
-
-            // Post type arşivi
-            $post_type = $post->post_type;
-            $pt_obj = get_post_type_object( $post_type );
-            if ( $pt_obj && $post_type !== 'post' && $post_type !== 'page' ) {
-                $archive_link = get_post_type_archive_link( $post_type );
-                if ( $archive_link ) {
-                    $items[] = array(
-                        'name' => $pt_obj->labels->name,
-                        'url'  => $archive_link,
-                    );
-                }
-            }
-
-            // Kategori hiyerarşisi
-            if ( 'post' === $post_type ) {
-                $categories = get_the_category( $post_id );
-                if ( ! empty( $categories ) ) {
-                    $chain = $this->get_category_hierarchy( $categories[0] );
-                    foreach ( $chain as $cat ) {
-                        $items[] = array(
-                            'name' => $cat->name,
-                            'url'  => get_category_link( $cat->term_id ),
-                        );
-                    }
-                }
-            }
-
-            // Sayfa ebeveyn hiyerarşisi
-            if ( 'page' === $post_type ) {
-                $parents = $this->get_page_hierarchy( $post_id );
-                foreach ( $parents as $pid ) {
-                    $items[] = array(
-                        'name' => get_the_title( $pid ),
-                        'url'  => get_permalink( $pid ),
-                    );
-                }
-            }
-
-            // Mevcut sayfa (son öğe)
-            $bc_title = get_post_meta( $post_id, '_wpsm_breadcrumb_title', true );
-            $items[] = array(
-                'name' => ! empty( $bc_title ) ? $bc_title : get_the_title( $post_id ),
-                'url'  => '',
-            );
+    public function get_schema( $post_id ) {
+        // WooCommerce varsa otomatik verileri al
+        if ( $this->is_woocommerce_product( $post_id ) ) {
+            return $this->get_woocommerce_schema( $post_id );
         }
 
-        // Arşiv sayfaları
-        if ( is_archive() ) {
-            if ( is_category() ) {
-                $cat = get_queried_object();
-                $chain = $this->get_category_hierarchy( $cat );
-                foreach ( $chain as $c ) {
-                    $items[] = array(
-                        'name' => $c->name,
-                        'url'  => get_category_link( $c->term_id ),
-                    );
-                }
-            }
-            if ( is_tag() ) {
-                $items[] = array( 'name' => get_queried_object()->name, 'url' => '' );
-            }
-            if ( is_author() ) {
-                $items[] = array(
-                    'name' => get_queried_object()->display_name, 'url' => ''
+        // Manuel giriş
+        return $this->get_manual_schema( $post_id );
+    }
+
+    private function is_woocommerce_product( $post_id ) {
+        if ( ! function_exists( 'wc_get_product' ) ) return false;
+        $product = wc_get_product( $post_id );
+        return $product !== false;
+    }
+
+    /**
+     * WooCommerce şemasını döndür
+     */
+    private function get_woocommerce_schema( $post_id ) {
+        $product = wc_get_product( $post_id );
+        if ( ! $product ) return array();
+
+        $schema = array(
+            '@type'       => 'Product',
+            '@id'         => get_permalink( $post_id ) . '#product',
+            'name'        => $this->sanitize( $product->get_name() ),
+            'description' => $this->sanitize( $product->get_description() ),
+            'url'         => get_permalink( $post_id ),
+        );
+
+        // image
+        $image_id = $product->get_image_id();
+        if ( $image_id ) {
+            $image_src = wp_get_attachment_image_src( $image_id, 'full' );
+            if ( $image_src ) {
+                $schema['image'] = array(
+                    '@type'  => 'ImageObject',
+                    'url'    => esc_url( $image_src[0] ),
+                    'width'  => $image_src[1],
+                    'height' => $image_src[2],
                 );
             }
-            if ( is_date() ) {
-                if ( is_year() ) {
-                    $items[] = array( 'name' => get_the_date( 'Y' ), 'url' => '' );
-                } elseif ( is_month() ) {
-                    $items[] = array(
-                        'name' => get_the_date( 'Y' ),
-                        'url'  => get_year_link( get_query_var( 'year' ) ),
-                    );
-                    $items[] = array( 'name' => get_the_date( 'F' ), 'url' => '' );
-                }
-            }
         }
 
-        // Arama
-        if ( is_search() ) {
-            $items[] = array(
-                'name' => sprintf( 'Arama: %s', get_search_query() ),
-                'url'  => '',
+        // sku
+        $sku = $product->get_sku();
+        if ( ! empty( $sku ) ) {
+            $schema['sku'] = $this->sanitize( $sku );
+        }
+
+        // brand
+        $brand = $this->get_product_brand( $product );
+        if ( ! empty( $brand ) ) {
+            $schema['brand'] = array(
+                '@type' => 'Brand',
+                'name'  => $this->sanitize( $brand ),
             );
         }
 
-        // 404
-        if ( is_404() ) {
-            $items[] = array( 'name' => 'Sayfa Bulunamadı', 'url' => '' );
+        // offers
+        $schema['offers'] = $this->get_woocommerce_offers( $product );
+
+        // aggregateRating
+        $rating = $this->get_product_rating( $product );
+        if ( ! empty( $rating ) ) {
+            $schema['aggregateRating'] = $rating;
         }
 
-        return $items;
+        // reviews
+        $reviews = $this->get_product_reviews( $product );
+        if ( ! empty( $reviews ) ) {
+            $schema['review'] = $reviews;
+        }
+
+        return apply_filters( 'wpsm_product_schema', $schema, $post_id );
     }
 
     /**
-     * Kategori hiyerarşisi (üstten alta)
+     * Manuel Product şemasını döndür
      */
-    private function get_category_hierarchy( $category ) {
-        $chain = array();
-        if ( ! $category ) return $chain;
+    private function get_manual_schema( $post_id ) {
+        $schema_data = get_post_meta( $post_id, '_wpsm_schema_data', true );
+        if ( empty( $schema_data ) || ! is_array( $schema_data ) ) return array();
 
-        $parent_id = $category->parent;
-        while ( $parent_id ) {
-            $parent = get_category( $parent_id );
-            if ( $parent && ! is_wp_error( $parent ) ) {
-                array_unshift( $chain, $parent );
-                $parent_id = $parent->parent;
-            } else {
-                break;
+        $schema = array(
+            '@type'       => 'Product',
+            '@id'         => get_permalink( $post_id ) . '#product',
+            'name'        => $this->sanitize( get_the_title( $post_id ) ),
+            'description' => $this->get_description( $post_id, $schema_data ),
+            'url'         => get_permalink( $post_id ),
+        );
+
+        // image
+        $thumbnail_id = get_post_thumbnail_id( $post_id );
+        if ( $thumbnail_id ) {
+            $image_src = wp_get_attachment_image_src( $thumbnail_id, 'full' );
+            if ( $image_src ) {
+                $schema['image'] = array(
+                    '@type'  => 'ImageObject',
+                    'url'    => esc_url( $image_src[0] ),
+                    'width'  => $image_src[1],
+                    'height' => $image_src[2],
+                );
             }
         }
-        $chain[] = $category;
-        return $chain;
+
+        // sku
+        if ( ! empty( $schema_data['sku'] ) ) {
+            $schema['sku'] = $this->sanitize( $schema_data['sku'] );
+        }
+
+        // brand
+        if ( ! empty( $schema_data['brand'] ) ) {
+            $schema['brand'] = array(
+                '@type' => 'Brand',
+                'name'  => $this->sanitize( $schema_data['brand'] ),
+            );
+        }
+
+        // offers
+        $schema['offers'] = array(
+            '@type'         => 'Offer',
+            'priceCurrency' => ! empty( $schema_data['priceCurrency'] ) ? $this->sanitize( $schema_data['priceCurrency'] ) : 'USD',
+            'price'         => ! empty( $schema_data['price'] ) ? number_format( (float) $schema_data['price'], 2, '.', '' ) : '0.00',
+            'availability'  => ! empty( $schema_data['availability'] ) ? $this->sanitize( $schema_data['availability'] ) : 'https://schema.org/InStock',
+        );
+
+        if ( ! empty( $schema_data['priceValidUntil'] ) ) {
+            $schema['offers']['priceValidUntil'] = sanitize_text_field( $schema_data['priceValidUntil'] );
+        }
+
+        return apply_filters( 'wpsm_product_schema', $schema, $post_id );
+    }
+
+    private function get_woocommerce_offers( $product ) {
+        $price = $product->get_price();
+        $offer = array(
+            '@type'         => 'Offer',
+            'url'           => get_permalink( $product->get_id() ),
+            'priceCurrency' => get_woocommerce_currency(),
+            'price'         => $price ? number_format( (float) $price, 2, '.', '' ) : '0.00',
+            'availability'  => $product->is_in_stock() ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+        );
+
+        $sale_price_dates_to = $product->get_date_on_sale_to();
+        if ( $sale_price_dates_to ) {
+            $offer['priceValidUntil'] = $sale_price_dates_to->date( 'Y-m-d' );
+        }
+
+        return $offer;
+    }
+
+    private function get_product_brand( $product ) {
+        $brands = wp_get_post_terms( $product->get_id(), 'product_brand' );
+        if ( ! empty( $brands ) && ! is_wp_error( $brands ) ) {
+            return $brands[0]->name;
+        }
+        return get_post_meta( $product->get_id(), '_wpsm_brand', true );
+    }
+
+    private function get_product_rating( $product ) {
+        $rating_count = $product->get_rating_count();
+        $average = $product->get_average_rating();
+        if ( $rating_count < 1 || empty( $average ) ) return null;
+
+        return array(
+            '@type'       => 'AggregateRating',
+            'ratingValue' => number_format( (float) $average, 1, '.', '' ),
+            'reviewCount' => intval( $rating_count ),
+            'bestRating'  => '5',
+            'worstRating' => '1',
+        );
+    }
+
+    private function get_product_reviews( $product ) {
+        $reviews = array();
+        $comments = get_comments( array(
+            'post_id' => $product->get_id(),
+            'status'  => 'approve',
+            'type'    => 'review',
+            'number'  => 5,
+        ) );
+
+        foreach ( $comments as $comment ) {
+            $rating = get_comment_meta( $comment->comment_ID, 'rating', true );
+            $reviews[] = array(
+                '@type'        => 'Review',
+                'author'       => array( '@type' => 'Person', 'name' => $this->sanitize( $comment->comment_author ) ),
+                'datePublished' => get_comment_date( 'Y-m-d', $comment->comment_ID ),
+                'reviewBody'    => $this->sanitize( $comment->comment_content ),
+                'reviewRating'  => array(
+                    '@type'       => 'Rating',
+                    'ratingValue' => $rating ? intval( $rating ) : 5,
+                    'bestRating'  => '5',
+                    'worstRating' => '1',
+                ),
+            );
+        }
+        return $reviews;
+    }
+
+    private function get_description( $post_id, $schema_data ) {
+        if ( ! empty( $schema_data['description'] ) ) return $this->sanitize( $schema_data['description'] );
+        $excerpt = get_the_excerpt( $post_id );
+        if ( ! empty( $excerpt ) ) return $this->sanitize( $excerpt );
+        $post = get_post( $post_id );
+        if ( $post ) return wp_trim_words( wp_strip_all_tags( $post->post_content ), 55, '...' );
+        return '';
+    }
+
+    private function sanitize( $string ) {
+        if ( empty( $string ) ) return '';
+        return sanitize_text_field( wp_strip_all_tags( $string ) );
+    }
+}`,
+  },
+  {
+    id: 'localbusiness',
+    name: 'class-localbusiness-schema.php',
+    path: 'includes/Schema/class-localbusiness-schema.php',
+    description: 'LocalBusiness şeması - address, geo, openingHours, telephone',
+    language: 'php',
+    code: `<?php
+/**
+ * LocalBusiness Schema Sınıfı
+ *
+ * LocalBusiness şemasını oluşturur.
+ * İşletme bilgileri metabox'ta girilir.
+ *
+ * @package WPSM\\Schema
+ * @since 1.0.0
+ */
+
+namespace WPSM\\Schema;
+
+if ( ! defined( 'ABSPATH' ) ) { exit; }
+
+class Class_Localbusiness_Schema {
+
+    private $options;
+
+    public function __construct( $options ) {
+        $this->options = $options;
     }
 
     /**
-     * Sayfa ebeveyn hiyerarşisi
+     * LocalBusiness şemasını döndür
+     *
+     * @param int $post_id Post ID
+     * @return array
      */
-    private function get_page_hierarchy( $page_id ) {
-        $chain = array();
-        $page = get_post( $page_id );
-        if ( ! $page ) return $chain;
+    public function get_schema( $post_id ) {
+        $schema_data = get_post_meta( $post_id, '_wpsm_schema_data', true );
+        if ( empty( $schema_data ) || ! is_array( $schema_data ) ) return array();
 
-        $parent_id = $page->post_parent;
-        while ( $parent_id ) {
-            array_unshift( $chain, $parent_id );
-            $parent = get_post( $parent_id );
-            $parent_id = $parent ? $parent->post_parent : 0;
+        $schema = array(
+            '@type' => 'LocalBusiness',
+            '@id'   => get_permalink( $post_id ) . '#localbusiness',
+            'name'  => $this->get_name( $post_id, $schema_data ),
+            'url'   => get_permalink( $post_id ),
+        );
+
+        // image
+        $thumbnail_id = get_post_thumbnail_id( $post_id );
+        if ( $thumbnail_id ) {
+            $image_src = wp_get_attachment_image_src( $thumbnail_id, 'full' );
+            if ( $image_src ) {
+                $schema['image'] = array(
+                    '@type'  => 'ImageObject',
+                    'url'    => esc_url( $image_src[0] ),
+                    'width'  => $image_src[1],
+                    'height' => $image_src[2],
+                );
+            }
         }
-        return $chain;
+
+        // description
+        $description = $this->get_description( $post_id, $schema_data );
+        if ( ! empty( $description ) ) {
+            $schema['description'] = $description;
+        }
+
+        // telephone
+        if ( ! empty( $schema_data['telephone'] ) ) {
+            $schema['telephone'] = $this->sanitize( $schema_data['telephone'] );
+        }
+
+        // priceRange
+        if ( ! empty( $schema_data['priceRange'] ) ) {
+            $schema['priceRange'] = $this->sanitize( $schema_data['priceRange'] );
+        }
+
+        // address (PostalAddress)
+        $address = $this->get_address( $schema_data );
+        if ( ! empty( $address ) ) {
+            $schema['address'] = $address;
+        }
+
+        // geo (GeoCoordinates)
+        $geo = $this->get_geo( $schema_data );
+        if ( ! empty( $geo ) ) {
+            $schema['geo'] = $geo;
+        }
+
+        // openingHours
+        $opening_hours = $this->get_opening_hours( $schema_data );
+        if ( ! empty( $opening_hours ) ) {
+            $schema['openingHours'] = $opening_hours;
+        }
+
+        // sameAs (sosyal profiller)
+        $same_as = $this->get_same_as( $schema_data );
+        if ( ! empty( $same_as ) ) {
+            $schema['sameAs'] = $same_as;
+        }
+
+        return apply_filters( 'wpsm_localbusiness_schema', $schema, $post_id );
     }
 
-    private function get_current_url() {
-        if ( is_singular() ) return get_permalink();
-        if ( is_front_page() ) return home_url( '/' );
-        if ( is_category() ) return get_category_link( get_queried_object_id() );
-        if ( is_tag() ) return get_tag_link( get_queried_object_id() );
-        if ( is_search() ) return get_search_link();
-        return home_url( $_SERVER['REQUEST_URI'] );
+    private function get_name( $post_id, $schema_data ) {
+        if ( ! empty( $schema_data['name'] ) ) return $this->sanitize( $schema_data['name'] );
+        return $this->sanitize( get_the_title( $post_id ) );
+    }
+
+    private function get_description( $post_id, $schema_data ) {
+        if ( ! empty( $schema_data['description'] ) ) return $this->sanitize( $schema_data['description'] );
+        $excerpt = get_the_excerpt( $post_id );
+        if ( ! empty( $excerpt ) ) return $this->sanitize( $excerpt );
+        $post = get_post( $post_id );
+        if ( $post ) return wp_trim_words( wp_strip_all_tags( $post->post_content ), 55, '...' );
+        return '';
+    }
+
+    /**
+     * Adres döndür (PostalAddress)
+     */
+    private function get_address( $schema_data ) {
+        $address = array( '@type' => 'PostalAddress' );
+        $has_address = false;
+
+        $fields = array(
+            'streetAddress'   => 'streetAddress',
+            'addressLocality' => 'addressLocality',
+            'addressRegion'   => 'addressRegion',
+            'postalCode'      => 'postalCode',
+            'addressCountry'  => 'addressCountry',
+        );
+
+        foreach ( $fields as $schema_key => $data_key ) {
+            if ( ! empty( $schema_data[ $data_key ] ) ) {
+                $address[ $schema_key ] = $this->sanitize( $schema_data[ $data_key ] );
+                $has_address = true;
+            }
+        }
+
+        return $has_address ? $address : array();
+    }
+
+    /**
+     * Geo koordinatları döndür (GeoCoordinates)
+     */
+    private function get_geo( $schema_data ) {
+        if ( empty( $schema_data['latitude'] ) || empty( $schema_data['longitude'] ) ) {
+            return array();
+        }
+        return array(
+            '@type'     => 'GeoCoordinates',
+            'latitude'  => floatval( $schema_data['latitude'] ),
+            'longitude' => floatval( $schema_data['longitude'] ),
+        );
+    }
+
+    /**
+     * Açılış saatlerini döndür
+     * Format: "Mo 09:00-17:00"
+     */
+    private function get_opening_hours( $schema_data ) {
+        if ( empty( $schema_data['openingHours'] ) || ! is_array( $schema_data['openingHours'] ) ) {
+            return array();
+        }
+
+        $hours = array();
+        $day_map = array(
+            'monday' => 'Mo', 'tuesday' => 'Tu', 'wednesday' => 'We',
+            'thursday' => 'Th', 'friday' => 'Fr', 'saturday' => 'Sa', 'sunday' => 'Su',
+        );
+
+        foreach ( $schema_data['openingHours'] as $hour ) {
+            if ( empty( $hour['day'] ) || empty( $hour['opens'] ) || empty( $hour['closes'] ) ) {
+                continue;
+            }
+
+            $day = strtolower( $hour['day'] );
+            if ( isset( $day_map[ $day ] ) ) {
+                $day = $day_map[ $day ];
+            } elseif ( ! in_array( $day, array( 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su' ), true ) ) {
+                continue;
+            }
+
+            $opens = sanitize_text_field( $hour['opens'] );
+            $closes = sanitize_text_field( $hour['closes'] );
+
+            if ( ! preg_match( '/^\\d{2}:\\d{2}$/', $opens ) || ! preg_match( '/^\\d{2}:\\d{2}$/', $closes ) ) {
+                continue;
+            }
+
+            $hours[] = sprintf( '%s %s-%s', $day, $opens, $closes );
+        }
+
+        return $hours;
+    }
+
+    /**
+     * Sosyal profilleri döndür (sameAs)
+     */
+    private function get_same_as( $schema_data ) {
+        $profiles = array();
+        $social_keys = array( 'facebook', 'twitter', 'instagram', 'linkedin', 'youtube', 'pinterest' );
+
+        foreach ( $social_keys as $key ) {
+            if ( ! empty( $schema_data[ $key ] ) ) {
+                $profiles[] = esc_url( $schema_data[ $key ] );
+            }
+        }
+
+        return $profiles;
     }
 
     private function sanitize( $string ) {
@@ -744,11 +750,11 @@ export default function CodeViewer() {
             KAYNAK KOD
           </span>
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            Schema.org JSON-LD Modülü
+            Ek Schema Tipleri
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
-            3 dosya: Schema Manager (@graph yapısı), Article Schema (author, publisher, image),
-            Breadcrumb Schema (hiyerarşi). Google Rich Results Test uyumlu.
+            4 dosya: FAQ, HowTo, Product (WooCommerce desteği), LocalBusiness.
+            Metabox'tan AJAX ile dinamik alan yükleme, repeater desteği.
           </p>
         </div>
 
@@ -825,7 +831,7 @@ export default function CodeViewer() {
         </div>
 
         {/* Download Links */}
-        <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {files.map((file) => (
             <a
               key={file.id}
@@ -847,84 +853,95 @@ export default function CodeViewer() {
           ))}
         </div>
 
-        {/* JSON-LD Output Preview */}
-        <div className="mt-12 p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
-          <h3 className="text-lg font-bold text-white mb-4">JSON-LD Çıktı Önizleme</h3>
-          <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-x-auto">
-            <pre className="text-gray-300">
-{`{
-  `}<span className="text-green-300">"@context"</span>{`: `}<span className="text-blue-300">"https://schema.org"</span>{`,
-  `}<span className="text-green-300">"@graph"</span>{`: [
-    {
-      `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"WebSite"</span>{`,
-      `}<span className="text-green-300">"@id"</span>{`: `}<span className="text-blue-300">"https://example.com/#website"</span>{`,
-      `}<span className="text-green-300">"url"</span>{`: `}<span className="text-blue-300">"https://example.com/"</span>{`,
-      `}<span className="text-green-300">"name"</span>{`: `}<span className="text-blue-300">"Site Adı"</span>{`,
-      `}<span className="text-green-300">"potentialAction"</span>{`: {
-        `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"SearchAction"</span>{`,
-        `}<span className="text-green-300">"target"</span>{`: { ... }
-      }
-    },
-    {
-      `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"Organization"</span>{`,
-      `}<span className="text-green-300">"@id"</span>{`: `}<span className="text-blue-300">"https://example.com/#organization"</span>{`,
-      `}<span className="text-green-300">"name"</span>{`: `}<span className="text-blue-300">"Site Adı"</span>{`,
-      `}<span className="text-green-300">"logo"</span>{`: { `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"ImageObject"</span>{`, ... }
-    },
-    {
-      `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"BreadcrumbList"</span>{`,
-      `}<span className="text-green-300">"@id"</span>{`: `}<span className="text-blue-300">"https://example.com/sayfa/#breadcrumb"</span>{`,
-      `}<span className="text-green-300">"itemListElement"</span>{`: [
-        { `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"ListItem"</span>{`, `}<span className="text-green-300">"position"</span>{`: 1, `}<span className="text-green-300">"name"</span>{`: `}<span className="text-blue-300">"Ana Sayfa"</span>{` },
-        { `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"ListItem"</span>{`, `}<span className="text-green-300">"position"</span>{`: 2, `}<span className="text-green-300">"name"</span>{`: `}<span className="text-blue-300">"Kategori"</span>{` },
-        { `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"ListItem"</span>{`, `}<span className="text-green-300">"position"</span>{`: 3, `}<span className="text-green-300">"name"</span>{`: `}<span className="text-blue-300">"Yazı"</span>{` }
-      ]
-    },
-    {
-      `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"Article"</span>{`,
-      `}<span className="text-green-300">"@id"</span>{`: `}<span className="text-blue-300">"https://example.com/sayfa/#article"</span>{`,
-      `}<span className="text-green-300">"headline"</span>{`: `}<span className="text-blue-300">"Yazı Başlığı"</span>{`,
-      `}<span className="text-green-300">"datePublished"</span>{`: `}<span className="text-blue-300">"2024-01-15T10:00:00+00:00"</span>{`,
-      `}<span className="text-green-300">"author"</span>{`: { `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"Person"</span>{`, `}<span className="text-green-300">"name"</span>{`: `}<span className="text-blue-300">"Yazar Adı"</span>{` },
-      `}<span className="text-green-300">"publisher"</span>{`: { `}<span className="text-green-300">"@id"</span>{`: `}<span className="text-blue-300">"https://example.com/#organization"</span>{` },
-      `}<span className="text-green-300">"image"</span>{`: { `}<span className="text-green-300">"@type"</span>{`: `}<span className="text-blue-300">"ImageObject"</span>{`, ... }
-    }
-  ]
-}`}
-            </pre>
+        {/* Schema Types Overview */}
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* FAQ Schema */}
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center">
+              <span className="w-8 h-8 bg-green-500/20 rounded-lg flex items-center justify-center mr-2">❓</span>
+              FAQPage
+            </h3>
+            <div className="bg-gray-900 rounded-lg p-3 font-mono text-xs overflow-x-auto">
+              <div><span className="text-green-300">"@type"</span>: <span className="text-blue-300">"FAQPage"</span></div>
+              <div><span className="text-green-300">"mainEntity"</span>: [</div>
+              <div className="ml-4"><span className="text-green-300">"@type"</span>: <span className="text-blue-300">"Question"</span></div>
+              <div className="ml-4"><span className="text-green-300">"name"</span>: <span className="text-blue-300">"Soru?"</span></div>
+              <div className="ml-4"><span className="text-green-300">"acceptedAnswer"</span>: {'{'}</div>
+              <div className="ml-8"><span className="text-green-300">"@type"</span>: <span className="text-blue-300">"Answer"</span></div>
+              <div className="ml-8"><span className="text-green-300">"text"</span>: <span className="text-blue-300">"Cevap..."</span></div>
+              <div className="ml-4">{'}'}</div>
+              <div>]</div>
+            </div>
           </div>
-        </div>
 
-        {/* @id Yapısı */}
-        <div className="mt-12 p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
-          <h3 className="text-lg font-bold text-white mb-4">Benzersiz @id Yapısı</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { id: '#website', type: 'WebSite', desc: 'Her sayfada, SearchAction ile' },
-              { id: '#organization', type: 'Organization', desc: 'Logo, sosyal profiller' },
-              { id: '#breadcrumb', type: 'BreadcrumbList', desc: 'itemListElement dizisi' },
-              { id: '#article', type: 'Article', desc: 'Author, publisher, image' },
-            ].map((item, i) => (
-              <div key={i} className="p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                <code className="text-xs text-purple-300 bg-purple-500/10 px-2 py-1 rounded">{item.id}</code>
-                <p className="text-sm font-medium text-white mt-2">{item.type}</p>
-                <p className="text-xs text-gray-500 mt-1">{item.desc}</p>
-              </div>
-            ))}
+          {/* HowTo Schema */}
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center">
+              <span className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center mr-2">📖</span>
+              HowTo
+            </h3>
+            <div className="bg-gray-900 rounded-lg p-3 font-mono text-xs overflow-x-auto">
+              <div><span className="text-green-300">"@type"</span>: <span className="text-blue-300">"HowTo"</span></div>
+              <div><span className="text-green-300">"totalTime"</span>: <span className="text-blue-300">"PT30M"</span></div>
+              <div><span className="text-green-300">"supply"</span>: [<span className="text-blue-300">"Malzeme"</span>]</div>
+              <div><span className="text-green-300">"tool"</span>: [<span className="text-blue-300">"Alet"</span>]</div>
+              <div><span className="text-green-300">"step"</span>: [</div>
+              <div className="ml-4"><span className="text-green-300">"@type"</span>: <span className="text-blue-300">"HowToStep"</span></div>
+              <div className="ml-4"><span className="text-green-300">"name"</span>: <span className="text-blue-300">"Adım adı"</span></div>
+              <div className="ml-4"><span className="text-green-300">"text"</span>: <span className="text-blue-300">"Açıklama"</span></div>
+              <div>]</div>
+            </div>
+          </div>
+
+          {/* Product Schema */}
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center">
+              <span className="w-8 h-8 bg-orange-500/20 rounded-lg flex items-center justify-center mr-2">🛒</span>
+              Product
+            </h3>
+            <div className="bg-gray-900 rounded-lg p-3 font-mono text-xs overflow-x-auto">
+              <div><span className="text-green-300">"@type"</span>: <span className="text-blue-300">"Product"</span></div>
+              <div><span className="text-green-300">"sku"</span>: <span className="text-blue-300">"ABC123"</span></div>
+              <div><span className="text-green-300">"brand"</span>: {'{'} <span className="text-green-300">"name"</span>: <span className="text-blue-300">"Marka"</span> {'}'}</div>
+              <div><span className="text-green-300">"offers"</span>: {'{'}</div>
+              <div className="ml-4"><span className="text-green-300">"price"</span>: <span className="text-blue-300">"99.99"</span></div>
+              <div className="ml-4"><span className="text-green-300">"priceCurrency"</span>: <span className="text-blue-300">"TRY"</span></div>
+              <div className="ml-4"><span className="text-green-300">"availability"</span>: <span className="text-blue-300">"InStock"</span></div>
+              <div>{'}'}</div>
+              <div><span className="text-green-300">"aggregateRating"</span>: {'{'} ... {'}'}</div>
+            </div>
+          </div>
+
+          {/* LocalBusiness Schema */}
+          <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center">
+              <span className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center mr-2">🏪</span>
+              LocalBusiness
+            </h3>
+            <div className="bg-gray-900 rounded-lg p-3 font-mono text-xs overflow-x-auto">
+              <div><span className="text-green-300">"@type"</span>: <span className="text-blue-300">"LocalBusiness"</span></div>
+              <div><span className="text-green-300">"telephone"</span>: <span className="text-blue-300">"+90..."</span></div>
+              <div><span className="text-green-300">"address"</span>: {'{'}</div>
+              <div className="ml-4"><span className="text-green-300">"streetAddress"</span>: <span className="text-blue-300">"Cadde No"</span></div>
+              <div className="ml-4"><span className="text-green-300">"addressLocality"</span>: <span className="text-blue-300">"İstanbul"</span></div>
+              <div>{'}'}</div>
+              <div><span className="text-green-300">"geo"</span>: {'{'} <span className="text-green-300">"latitude"</span>, <span className="text-green-300">"longitude"</span> {'}'}</div>
+              <div><span className="text-green-300">"openingHours"</span>: [<span className="text-blue-300">"Mo 09:00-17:00"</span>]</div>
+            </div>
           </div>
         </div>
 
         {/* Features */}
         <div className="mt-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { title: '@graph Yapısı', desc: 'Birden fazla şema tek JSON-LD\'de' },
-            { title: 'WebSite + SearchAction', desc: 'Google sitelinks search box' },
-            { title: 'Organization', desc: 'Logo, sameAs sosyal profiller' },
-            { title: 'Article Schema', desc: 'Author (Person), publisher, image' },
-            { title: 'BreadcrumbList', desc: 'Kategori/sayfa hiyerarşisi' },
-            { title: 'wp_json_encode', desc: 'Güvenli JSON çıktısı' },
-            { title: 'sanitize_text_field', desc: 'Tüm kullanıcı girdileri temiz' },
-            { title: 'Rich Results Test', desc: 'Google uyumlu, hata yok' },
+            { title: 'FAQ Repeater', desc: 'Soru-cevap çiftleri, dinamik ekleme' },
+            { title: 'HowTo Steps', desc: 'Adımlar, malzemeler, aletler' },
+            { title: 'WooCommerce', desc: 'Otomatik product schema' },
+            { title: 'aggregateRating', desc: 'Otomatik puan ve yorumlar' },
+            { title: 'PostalAddress', desc: 'Tam adres bilgileri' },
+            { title: 'GeoCoordinates', desc: 'Enlem/boylam desteği' },
+            { title: 'openingHours', desc: 'ISO formatında çalışma saatleri' },
+            { title: 'AJAX Fields', desc: 'Tip seçilince dinamik alanlar' },
           ].map((item, i) => (
             <div key={i} className="p-4 bg-white/[0.02] border border-white/5 rounded-xl">
               <p className="text-sm font-medium text-purple-300">{item.title}</p>
