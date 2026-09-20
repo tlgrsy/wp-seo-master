@@ -1,0 +1,40 @@
+```
+# WordPress specific
+wp-content/plugins/wp-seo-master/
+wp-seo-master/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build artifacts
+assets/css/*.css.map
+assets/js/*.js.map
+dist/
+build/
+*.min.css
+*.min.js
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+*.cache
+```
