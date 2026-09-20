@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: WP SEO Master
- * Plugin URI: https://github.com/tlgrsy/wp-seo-master
- * Description: Yoast / All in One SEO'ya benzer, ancak Schema.org dahil TÜM özellikleri ücretsiz olan WordPress SEO eklentisi.
+ * Plugin URI: https://example.com/wp-seo-master
+ * Description: Yoast / All in One SEO'ya benzer, Schema.org dahil TÜM özellikleri ücretsiz sunan kapsamlı SEO eklentisi.
  * Version: 1.0.0
- * Author: WP SEO Master Team
- * Author URI: https://github.com/tlgrsy/wp-seo-master
+ * Author: WP SEO Master
+ * Author URI: https://example.com
  * License: GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: wp-seo-master
@@ -16,60 +16,59 @@
  * @package WPSM
  */
 
-// Doğrudan erişimi engelle
-if ( ! defined( 'ABSPATH' ) ) {
+if (! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-// Sabitler
+// Sabitler.
 define( 'WPSM_VERSION', '1.0.0' );
 define( 'WPSM_FILE', __FILE__ );
 define( 'WPSM_PATH', plugin_dir_path( __FILE__ ) );
 define( 'WPSM_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPSM_BASENAME', plugin_basename( __FILE__ ) );
 
-// Çakışma kontrolü
-if ( defined( 'WPSEO_VERSION' ) || defined( 'AIOSEO_VERSION' ) || defined( 'RANK_MATH_VERSION' ) || defined( 'SEOPRESS_VERSION' ) ) {
-	add_action( 'admin_notices', 'wpsm_conflict_notice' );
-	
-	/**
-	 * Diğer SEO eklentileri ile çakışma uyarısı
-	 *
-	 * @since 1.0.0
-	 * @return void
-	 */
-	function wpsm_conflict_notice() {
-		?>
-		<div class="notice notice-error">
-			<p>
-				<strong><?php esc_html_e( 'WP SEO Master Çakışma Uyarısı', 'wp-seo-master' ); ?></strong><br>
-				<?php esc_html_e( 'Sitenizde başka bir SEO eklentisi (Yoast SEO, All in One SEO, Rank Math veya SEOPress) aktif görünüyor. Lütfen diğer SEO eklentilerini devre dışı bırakın.', 'wp-seo-master' ); ?>
-			</p>
-		</div>
-		<?php
-	}
-	
-	// Frontend output'u devre dışı bırak
-	add_filter( 'wpsm_enable_frontend_output', '__return_false' );
-	
-	return; // Plugin yüklemesini durdur
+/**
+ * Varsayılan ayarları döndürür.
+ *
+ * @return array
+ */
+function wpsm_get_default_settings() {
+	return array(
+		'title_separator' => '|',
+		'enable_sitemap' => true,
+		'enable_schema' => true,
+		'enable_opengraph' => true,
+		'enable_twitter' => true,
+		'enable_breadcrumbs' => true,
+		'enable_analyzer' => true,
+		'default_schema_type' => 'Article',
+		'twitter_site' => '',
+		'facebook_app_id' => '',
+		'default_og_image' => '',
+		'gsc_verification' => '',
+		'bing_verification' => '',
+		'robots_txt_custom' => '',
+		'sitemap_cache_hours' => 12,
+		'db_version' => '1.0.0',
+	);
 }
 
-// Autoloader
-require_once WPSM_PATH . 'includes/class-autoloader.php';
-WPSM\Autoloader::register();
+// Autoloader yükle.
+require_once WPSM_PATH. 'includes/class-autoloader.php';
+\WPSM\Class_Autoloader::register();
 
-// Plugin aktivasyon/deaktivasyon hook'ları
-register_activation_hook( __FILE__, array( 'WPSM\Installer', 'activate' ) );
-register_deactivation_hook( __FILE__, array( 'WPSM\Installer', 'deactivate' ) );
+/**
+ * Eklentiyi başlatır.
+ *
+ * @return void
+ */
+function wpsm_init_plugin() {
+	if ( class_exists( '\WPSM\Class_Plugin' ) ) {
+		\WPSM\Class_Plugin::get_instance();
+	}
+}
+add_action( 'plugins_loaded', 'wpsm_init_plugin' );
 
-// Plugin başlatma
-add_action( 'plugins_loaded', function() {
-	// i18n yükle
-	$i18n = new \WPSM\I18n();
-	$i18n->init();
-	
-	// Ana plugin sınıfını başlat
-	$plugin = \WPSM\Plugin::get_instance();
-	$plugin->init();
-}, 0 ); // Öncelik 0 - diğer eklentilerden önce yüklenmesi için
+// Aktivasyon / Deaktivasyon.
+register_activation_hook( __FILE__, array( '\WPSM\Class_Installer', 'activate' ) );
+register_deactivation_hook( __FILE__, array( '\WPSM\Class_Installer', 'deactivate' ) );
