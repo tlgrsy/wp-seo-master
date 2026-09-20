@@ -1,0 +1,20 @@
+/* Frontend CSS */
+.wpsm-breadcrumb {
+	font-size: 14px;
+	color: #666;
+	margin: 10px 0;
+}
+
+.wpsm-breadcrumb a {
+	color: #0073aa;
+	text-decoration: none;
+}
+
+.wpsm-breadcrumb a:hover {
+	text-decoration: underline;
+}
+
+.wpsm-breadcrumb .breadcrumb-separator {
+	color: #aaa;
+	padding: 0 5px;
+}
